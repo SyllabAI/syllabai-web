@@ -1,29 +1,52 @@
 # syllabai-web
 
-SyllabAI web frontend — **Next.js 16 App Router** experience for students, teachers, and admins.
+SyllabAI frontend — **Next.js 16 / React 19 / TypeScript** Learner Workbench (Vercel deployment).
 
-> Part of the SyllabAI project · master pack: [`SyllabAI/syllabai`](https://github.com/SyllabAI/syllabai) · the Java backend lives in [`syllabai-core`](https://github.com/SyllabAI/syllabai-core) (Vercel has no Java runtime — the split is mandatory).
+> Part of the SyllabAI project · master pack: [`SyllabAI/syllabai`](https://github.com/SyllabAI/syllabai) · backend: [`SyllabAI/syllabai-core`](https://github.com/SyllabAI/syllabai-core)
 
-## Stack (locked, ADR-002)
+## What's implemented (Wave 0, T-005)
 
-- **Next.js 16.3.x (Active LTS) + React 19 + TypeScript**
-- Tailwind CSS 4 + shadcn/ui-compatible components
-- Deployed on **Vercel Hobby** (free, no credit card)
-- Typed API client generated from the backend OpenAPI spec (`/api/v1`)
-- SSE streaming for tutor chat; PDF.js viewer for past papers with mark-scheme toggle; react-force-graph/d3 mastery map
+A single-page **Learner Workbench** (`src/app/page.tsx`) with three views over the
+Java backend's `/api/v1`:
 
-## Cycle-1 surfaces
+- **Sign in / register** — JWT auth against the Spring Boot API (Bearer token; v0
+  keeps the token in localStorage, httpOnly-cookie hardening is tracked for Wave 4).
+- **Practice** — question player with options, confidence slider (1–5), self-doubt
+  flag and timed-mode checkbox (Paper B §3.5 / §16 telemetry inputs), immediate
+  feedback including misconception signals from the chosen distractor.
+- **Mastery map** — Edexcel IAL Chemistry knowledge tree (units → topics →
+  subtopics) with BKT mastery bars (effective mastery after Ebbinghaus decay),
+  known-misconception lists per topic and the prerequisite remediation chain.
+- **My state** — BKT skill table (stored vs effective mastery), BDT misconception
+  watch (probability, active flag) and the decay-driven review queue.
 
-- Auth (login/register, roles)
-- Student: mastery map (KG visualizer), tutor chat with **verbatim citations**, question practice (timed/untimed), Smart Mark feedback, personal dashboard
-- Teacher (minimal): class list, Smart Mark review queue, overrides
-- Accessibility baseline: WCAG 2.1 AA (A11Y.md contract in the main repo)
+Typed API client in `src/lib/api.ts` (mirrors the backend DTOs, Master Spec §22).
 
-## Rules
+## Stack
 
-- No business rules here — the frontend is a view layer; authorization is server-side in `syllabai-core`.
-- Cold-start UX: handle backend wake-up (Render free tier) with retry states, never lose user input (F-156).
+- Next.js 16 (App Router), React 19, TypeScript 5
+- Tailwind CSS 4 + shadcn/ui (New York) + Lucide icons
+- State: React hooks + fetch (TanStack Query/Zustand available for Wave 2+ scale)
 
-## Status
+## Development
 
-Not started. Bootstrap task: **T-005** in the main repo's `TODO.md` (Wave 0).
+```bash
+bun install        # or npm install
+bun run dev        # http://localhost:3000
+```
+
+The workbench talks to the backend through `NEXT_PUBLIC_API_BASE_URL`
+(e.g. `https://syllabai-core.onrender.com` — see `.env.example`).
+When unset, requests go to same-origin `/api/v1/...` — useful behind the
+sandbox gateway or a reverse proxy.
+
+## Deployment (Vercel)
+
+1. Import this repo on Vercel (Hobby plan, $0).
+2. Set env var `NEXT_PUBLIC_API_BASE_URL` = the Render URL of `syllabai-core`.
+3. Ensure the backend's `SYLLABAI_CORS_ORIGINS` includes your Vercel domain.
+
+## Tests / CI
+
+`.github/workflows/ci.yml` runs lint + production build on Node 22.
+Component/UI tests (Playwright) are Wave 2 scope.
