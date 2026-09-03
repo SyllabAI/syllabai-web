@@ -10,10 +10,11 @@ import { Progress } from "@/components/ui/progress";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CheckCircle2, Loader2, Send, Timer, TriangleAlert, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Loader2, PenLine, Send, Timer, TriangleAlert, XCircle } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AttemptResultView, StudentQuestionView } from "@/lib/types";
+import type { AttemptResultView, StudentQuestionView, StructuredAttemptResultView } from "@/lib/types";
 
 const CONFIDENCE_LABELS = ["", "guessing", "unsure", "getting there", "confident", "certain"];
 
@@ -25,6 +26,8 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
   const [selfDoubt, setSelfDoubt] = useState(false);
   const [timed, setTimed] = useState(false);
   const [result, setResult] = useState<AttemptResultView | null>(null);
+  const [partAnswers, setPartAnswers] = useState<Record<string, string>>({});
+  const [structuredResult, setStructuredResult] = useState<StructuredAttemptResultView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedAt = useRef<number>(Date.now());
@@ -45,18 +48,52 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
   }, []);
 
   const question = questions?.[index] ?? null;
+  const isStructured = question?.type === "STRUCTURED";
 
   const nextQuestion = useCallback(() => {
     setResult(null);
+    setStructuredResult(null);
     setChosen(null);
+    setPartAnswers({});
     setSelfDoubt(false);
     setConfidence(3);
     startedAt.current = Date.now();
     setIndex((i) => (questions ? (i + 1) % questions.length : 0));
   }, [questions]);
 
+  const allPartsAnswered = isStructured
+    ? (question?.parts ?? []).every((part) => (partAnswers[part.id] ?? "").trim().length > 0)
+    : Boolean(chosen);
+
+  async function submitStructured() {
+    if (!question || !allPartsAnswered) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await api.submitStructuredAttempt({
+        questionId: question.id,
+        partAnswers: (question.parts ?? []).map((part) => ({
+          partId: part.id,
+          answerText: partAnswers[part.id] ?? "",
+        })),
+        responseTimeMs: Date.now() - startedAt.current,
+        confidence,
+        selfDoubtFlag: selfDoubt,
+        timedCondition: timed,
+      });
+      setStructuredResult(response);
+      onAttemptSubmitted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to submit the attempt");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit() {
-    if (!question || !chosen) return;
+    if (!question) return;
+    if (isStructured) return submitStructured();
+    if (!chosen) return;
     setBusy(true);
     setError(null);
     try {
@@ -132,7 +169,30 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
         <CardContent className="space-y-5">
           <p className="text-sm leading-relaxed">{question.stem}</p>
 
-          {result ? (
+          {structuredResult ? (
+            <div className="space-y-4">
+              <Alert>
+                <Clock className="size-4 text-blue-600" aria-hidden="true" />
+                <AlertTitle>Submitted for marking — {structuredResult.marksPossible} marks</AlertTitle>
+                <AlertDescription>
+                  Your written answers are stored and queued for marking. Marks and
+                  feedback appear once your teacher (or the κ-gated Smart Mark engine)
+                  has marked them — your mastery updates then.
+                </AlertDescription>
+              </Alert>
+              <ul className="space-y-1 text-sm text-muted-foreground">
+                {structuredResult.parts.map((part) => (
+                  <li key={part.partId} className="flex items-center justify-between gap-2">
+                    <span>Part {part.label}</span>
+                    <span className="text-xs">pending marks</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={nextQuestion}>Next question</Button>
+              </div>
+            </div>
+          ) : result ? (
             <div className="space-y-4">
               <Alert variant={result.correct ? "default" : "destructive"}>
                 {result.correct ? (
@@ -170,6 +230,7 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
                   variant="outline"
                   onClick={() => {
                     setResult(null);
+                    setStructuredResult(null);
                     setChosen(null);
                     startedAt.current = Date.now();
                   }}
@@ -180,6 +241,33 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
             </div>
           ) : (
             <>
+              {isStructured ? (
+                <div className="space-y-4">
+                  {(question.parts ?? []).map((part) => (
+                    <div key={part.id} className="space-y-1.5">
+                      <Label htmlFor={part.id} className="text-sm font-semibold">
+                        {part.label}) {part.commandWord ? `${part.commandWord} — ` : ""}
+                        {part.prompt}
+                        {part.marks > 0 && (
+                          <span className="ml-1 font-normal text-muted-foreground">
+                            ({part.marks} mark{part.marks > 1 ? "s" : ""})
+                          </span>
+                        )}
+                      </Label>
+                      <Textarea
+                        id={part.id}
+                        value={partAnswers[part.id] ?? ""}
+                        onChange={(e) =>
+                          setPartAnswers((prev) => ({ ...prev, [part.id]: e.target.value }))
+                        }
+                        placeholder="Write your answer…"
+                        rows={3}
+                        disabled={busy}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
               <RadioGroup
                 value={chosen ?? ""}
                 onValueChange={setChosen}
@@ -199,6 +287,7 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
                   </div>
                 ))}
               </RadioGroup>
+              )}
 
               <div className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -253,13 +342,13 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
                 </Alert>
               )}
 
-              <Button onClick={submit} disabled={!chosen || busy}>
+              <Button onClick={submit} disabled={!allPartsAnswered || busy}>
                 {busy ? (
                   <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                 ) : (
                   <Send className="size-4" aria-hidden="true" />
                 )}
-                Submit answer
+                {isStructured ? "Submit for marking" : "Submit answer"}
               </Button>
             </>
           )}

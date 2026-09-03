@@ -17,6 +17,7 @@ import type {
   NodeView,
   PrerequisiteView,
   StudentQuestionView,
+  StructuredAttemptResultView,
   SubjectView,
 } from "./types";
 
@@ -127,6 +128,19 @@ export const api = {
     timedCondition: boolean;
   }) =>
     request<AttemptResultView>("/api/v1/attempts", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  submitStructuredAttempt: (body: {
+    questionId: string;
+    partAnswers: { partId: string; answerText: string }[];
+    responseTimeMs: number;
+    confidence: number | null;
+    selfDoubtFlag: boolean;
+    timedCondition: boolean;
+  }) =>
+    request<StructuredAttemptResultView>("/api/v1/attempts/structured", {
       method: "POST",
       body: JSON.stringify(body),
     }),

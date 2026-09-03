@@ -40,6 +40,14 @@ export interface OptionView {
   text: string;
 }
 
+export interface PartView {
+  id: string;
+  label: string;
+  prompt: string;
+  commandWord: string | null;
+  marks: number;
+}
+
 export interface StudentQuestionView {
   id: string;
   externalRef: string | null;
@@ -50,7 +58,26 @@ export interface StudentQuestionView {
   expectedTimeSeconds: number;
   commandWord: string | null;
   primaryTopicNodeId: string;
+  examPaperId: string | null;
   options: OptionView[];
+  parts: PartView[];
+}
+
+export interface StructuredAttemptPartResult {
+  partId: string;
+  label: string;
+  marksPossible: number;
+  markingState: string;
+  marksAwarded: number | null;
+}
+
+export interface StructuredAttemptResultView {
+  attemptId: string;
+  questionId: string;
+  marksPossible: number;
+  markingState: string;
+  submittedAt: string;
+  parts: StructuredAttemptPartResult[];
 }
 
 export interface AttemptResultView {
@@ -72,6 +99,7 @@ export interface SkillStateView {
   attempts: number;
   correctCount: number;
   lastPracticedAt: string;
+  proceduralFluencyGap: number | null;
 }
 
 export interface MisconceptionStateView {

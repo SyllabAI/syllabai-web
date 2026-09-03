@@ -105,6 +105,15 @@ export function StateView({
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
                         {s.correctCount}/{s.attempts}
+                        {s.proceduralFluencyGap !== null && s.proceduralFluencyGap !== undefined && (
+                          <span
+                            className="ml-2"
+                            title="Untimed accuracy minus timed accuracy (Paper B §16 fluency gap)"
+                          >
+                            Δ{s.proceduralFluencyGap >= 0 ? "+" : ""}
+                            {s.proceduralFluencyGap.toFixed(2)}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="hidden text-right text-xs text-muted-foreground sm:table-cell">
                         {formatRelative(s.lastPracticedAt)}
