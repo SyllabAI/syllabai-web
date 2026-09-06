@@ -19,6 +19,7 @@ import type {
   StudentQuestionView,
   StructuredAttemptResultView,
   SubjectView,
+  TutorAnswerView,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
@@ -146,4 +147,10 @@ export const api = {
     }),
 
   learnerState: () => request<LearnerStateView>("/api/v1/learners/me/state"),
+
+  tutorAsk: (question: string) =>
+    request<TutorAnswerView>("/api/v1/tutor/ask", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
 };

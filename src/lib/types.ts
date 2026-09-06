@@ -129,3 +129,35 @@ export interface SubjectView {
   name: string;
   knowledgeNodeId: string | null;
 }
+
+// ── Tutor chat (T-025, mirrors the T-024 backend DTOs) ──
+
+/** One verbatim source reference under a tutor answer ([n] markers, 1-based). */
+export interface TutorCitation {
+  index: number;
+  label: string;
+  sourceType: string;
+  documentId: string | null;
+  page: number | null;
+  nodeId: string | null;
+  deepLink: string;
+}
+
+/** A curriculum topic the intent matcher selected for the question. */
+export interface TutorTopicMatch {
+  code: string;
+  title: string;
+  matchScore: number;
+}
+
+/** POST /api/v1/tutor/ask response (T-024 TutorAnswerView). */
+export interface TutorAnswerView {
+  answer: string;
+  citations: TutorCitation[];
+  topics: TutorTopicMatch[];
+  evidenceCount: number;
+  model: string | null;
+  provider: string;
+  refused: boolean;
+  latencyMs: number;
+}

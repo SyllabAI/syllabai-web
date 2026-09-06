@@ -7,9 +7,10 @@ import { LoginView } from "@/components/syllabai/LoginView";
 import { MasteryMap } from "@/components/syllabai/MasteryMap";
 import { PracticeView } from "@/components/syllabai/PracticeView";
 import { StateView } from "@/components/syllabai/StateView";
+import { TutorChatView, type TutorChatMessage } from "@/components/syllabai/TutorChatView";
 import { clearSession, api, currentUser, getToken, setSession } from "@/lib/api";
 import type { AuthResponse, LearnerStateView, NodeView } from "@/lib/types";
-import { Brain, GraduationCap, LineChart } from "lucide-react";
+import { Brain, GraduationCap, LineChart, MessagesSquare } from "lucide-react";
 
 function collectTitles(node: NodeView, acc: Record<string, string>) {
   acc[node.id] = node.title;
@@ -22,6 +23,9 @@ export default function SyllabAiWorkbench() {
   const [learnerState, setLearnerState] = useState<LearnerStateView | null>(null);
   const [stateLoading, setStateLoading] = useState(false);
   const [titles, setTitles] = useState<Record<string, string>>({});
+  // Tutor transcript lives here (not inside the tab) so it survives tab switches;
+  // server-side sessions arrive with the Spec §22 tutor/sessions endpoints.
+  const [tutorMessages, setTutorMessages] = useState<TutorChatMessage[]>([]);
 
   // Restore session on first paint (token in localStorage, v0 pilot storage).
   useEffect(() => {
@@ -105,10 +109,14 @@ export default function SyllabAiWorkbench() {
 
       <main className="mx-auto w-full max-w-5xl flex-1 scroll-mt-16 px-4 py-6">
         <Tabs defaultValue="practice" className="w-full">
-          <TabsList className="mb-4 grid w-full grid-cols-3">
+          <TabsList className="mb-4 grid w-full grid-cols-4">
             <TabsTrigger value="practice" className="gap-1.5">
               <GraduationCap className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">Practice</span>
+            </TabsTrigger>
+            <TabsTrigger value="tutor" className="gap-1.5">
+              <MessagesSquare className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Tutor</span>
             </TabsTrigger>
             <TabsTrigger value="map" className="gap-1.5">
               <Brain className="size-4" aria-hidden="true" />
@@ -122,6 +130,9 @@ export default function SyllabAiWorkbench() {
 
           <TabsContent value="practice">
             <PracticeView onAttemptSubmitted={refreshState} />
+          </TabsContent>
+          <TabsContent value="tutor">
+            <TutorChatView messages={tutorMessages} setMessages={setTutorMessages} />
           </TabsContent>
           <TabsContent value="map">
             <MasteryMap learnerState={learnerState} />
