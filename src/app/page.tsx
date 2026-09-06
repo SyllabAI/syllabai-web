@@ -11,12 +11,14 @@ import { StateView } from "@/components/syllabai/StateView";
 import { TutorChatView, type TutorChatMessage } from "@/components/syllabai/TutorChatView";
 import { clearSession, api, currentUser, getToken, setSession } from "@/lib/api";
 import type { AuthResponse, LearnerKnowledgeGraphView, LearnerStateView } from "@/lib/types";
+import { TeacherReviewView } from "@/components/syllabai/TeacherReviewView";
 import {
   Brain,
   GraduationCap,
   LayoutDashboard,
   LineChart,
   MessagesSquare,
+  Users,
 } from "lucide-react";
 
 export default function SyllabAiWorkbench() {
@@ -37,6 +39,13 @@ export default function SyllabAiWorkbench() {
   const [tab, setTab] = useState("dashboard");
   const [practiceTopic, setPracticeTopic] = useState<{ nodeId: string; title: string } | null>(
     null,
+  );
+  // T-029: the Teacher tab is a UI affordance for TEACHER/ADMIN accounts.
+  // The backend enforces /api/v1/teacher/** (SecurityConfig) — this check only
+  // decides whether the tab renders; it is never the authorization.
+  const isTeacher = useMemo(
+    () => auth?.user.roles.some((r) => r === "TEACHER" || r === "ADMIN") ?? false,
+    [auth],
   );
 
   // Restore session on first paint (token in localStorage, v0 pilot storage).
@@ -152,7 +161,9 @@ export default function SyllabAiWorkbench() {
 
       <main className="mx-auto w-full max-w-5xl flex-1 scroll-mt-16 px-4 py-6">
         <Tabs value={tab} onValueChange={setTab} className="w-full">
-          <TabsList className="mb-4 grid w-full grid-cols-5">
+          <TabsList
+            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-6" : "grid-cols-5"}`}
+          >
             <TabsTrigger value="dashboard" className="gap-1.5">
               <LayoutDashboard className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">Dashboard</span>
@@ -173,6 +184,12 @@ export default function SyllabAiWorkbench() {
               <LineChart className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">My state</span>
             </TabsTrigger>
+            {isTeacher && (
+              <TabsTrigger value="teacher" className="gap-1.5">
+                <Users className="size-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Teacher</span>
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="dashboard">
@@ -211,6 +228,11 @@ export default function SyllabAiWorkbench() {
               misconceptionTitles={titles}
             />
           </TabsContent>
+          {isTeacher && (
+            <TabsContent value="teacher">
+              <TeacherReviewView />
+            </TabsContent>
+          )}
         </Tabs>
       </main>
 

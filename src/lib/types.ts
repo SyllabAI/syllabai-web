@@ -203,3 +203,68 @@ export interface LearnerKnowledgeGraphView {
   nodes: LearnerNodeWithStateView[];
   prerequisiteEdges: LearnerPrerequisiteEdgeView[];
 }
+
+// ── T-029 teacher review surface (mirrors core TeacherViews) ──
+
+export interface TeacherLearnerView {
+  id: string;
+  displayName: string;
+  email: string;
+  createdAt: string;
+}
+
+export interface SmartMarkBreakdownItem {
+  markPointId?: string;
+  awarded?: boolean;
+  [key: string]: unknown;
+}
+
+export interface SmartMarkView {
+  id: string;
+  pipelineVersion: string | null;
+  modelId: string | null;
+  marksAwarded: number;
+  confidence: number | null;
+  validationPassed: boolean;
+  failureReason: string | null;
+  breakdown: SmartMarkBreakdownItem[];
+  createdAt: string;
+}
+
+export interface HumanMarkView {
+  id: string;
+  markerId: string;
+  marksAwarded: number;
+  perPointDecisions: Record<string, number> | null;
+  comments: string | null;
+  createdAt: string;
+}
+
+export interface AnswerMarkingView {
+  answerId: string;
+  attemptId: string;
+  learnerId: string;
+  learnerDisplayName: string | null;
+  questionId: string;
+  questionExternalRef: string | null;
+  partLabel: string;
+  partPrompt: string;
+  partMarks: number;
+  answerText: string;
+  markingState: string;
+  marksAwarded: number | null;
+  latestSmartMark: SmartMarkView | null;
+  latestHumanMark: HumanMarkView | null;
+}
+
+export interface KappaEvaluationView {
+  id: string;
+  scope: string;
+  paperId: string | null;
+  sampleSize: number;
+  kappa: number;
+  observedAgreement: number;
+  threshold: number;
+  passed: boolean;
+  computedAt: string;
+}

@@ -12,14 +12,19 @@
  */
 import type {
   AuthResponse,
+  AnswerMarkingView,
   AttemptResultView,
+  HumanMarkView,
+  KappaEvaluationView,
   LearnerKnowledgeGraphView,
   LearnerStateView,
   NodeView,
   PrerequisiteView,
+  SmartMarkView,
   StudentQuestionView,
   StructuredAttemptResultView,
   SubjectView,
+  TeacherLearnerView,
   TutorAnswerView,
 } from "./types";
 
@@ -158,5 +163,44 @@ export const api = {
     request<TutorAnswerView>("/api/v1/tutor/ask", {
       method: "POST",
       body: JSON.stringify({ question }),
+    }),
+
+  // ── T-029 teacher review surface (route security: TEACHER or ADMIN on the
+  // backend; the role check in the UI is an affordance, never authorization) ──
+  teacherLearners: () => request<TeacherLearnerView[]>("/api/v1/teacher/learners"),
+
+  markingQueue: (state: string) =>
+    request<AnswerMarkingView[]>(`/api/v1/teacher/marking/answers?state=${state}`),
+
+  markingAnswer: (answerId: string) =>
+    request<AnswerMarkingView>(`/api/v1/teacher/marking/answers/${answerId}`),
+
+  runSmartMark: (answerId: string) =>
+    request<SmartMarkView>(`/api/v1/teacher/marking/answers/${answerId}/smart-mark`, {
+      method: "POST",
+    }),
+
+  recordHumanMark: (
+    answerId: string,
+    body: {
+      marksAwarded: number;
+      perPointDecisions: Record<string, number> | null;
+      comments: string | null;
+    },
+  ) =>
+    request<HumanMarkView>(`/api/v1/teacher/marking/answers/${answerId}/human-mark`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  kappaLatest: (paperId?: string) =>
+    request<KappaEvaluationView>(
+      `/api/v1/teacher/marking/kappa/latest${paperId ? `?paperId=${paperId}` : ""}`,
+    ),
+
+  evaluateKappa: (paperId?: string) =>
+    request<KappaEvaluationView>("/api/v1/teacher/marking/kappa/evaluate", {
+      method: "POST",
+      body: JSON.stringify(paperId ? { paperId } : {}),
     }),
 };
