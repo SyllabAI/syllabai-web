@@ -1,21 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+/**
+ * T-028 mastery map: the curriculum tree + the 2D graph visualiser over ONE
+ * personalized payload (F-034 GET /api/v1/learners/me/knowledge-graph) —
+ * the client-side tree + /state join is retired. The tree view is the
+ * accessible default; the graph view (F-036) adds the spatial overview with
+ * prerequisite edges.
+ */
+import { useCallback, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { ArrowDown, Brain, Network, TriangleAlert } from "lucide-react";
+import { ArrowDown, Brain, ListTree, Network, TriangleAlert } from "lucide-react";
 import { api } from "@/lib/api";
-import type { LearnerStateView, NodeView, PrerequisiteView, SkillStateView, SubjectView } from "@/lib/types";
+import { formatRelative } from "@/lib/format";
+import { KnowledgeGraphView } from "@/components/syllabai/KnowledgeGraphView";
+import type {
+  LearnerKnowledgeGraphView,
+  LearnerNodeWithStateView,
+  PrerequisiteView,
+} from "@/lib/types";
 
 const bandColor: Record<string, string> = {
   LOW: "text-rose-600 dark:text-rose-400",
@@ -29,12 +43,8 @@ const bandProgressClass: Record<string, string> = {
   SECURE: "[&>div]:bg-emerald-500",
 };
 
-function masteryFor(state: LearnerStateView | null, nodeId: string): SkillStateView | null {
-  return state?.skillStates.find((s) => s.nodeId === nodeId) ?? null;
-}
-
-function MasteryBar({ state }: { state: SkillStateView | null }) {
-  if (!state) {
+function MasteryBar({ node }: { node: LearnerNodeWithStateView }) {
+  if (node.effectiveMastery === null || node.band === null) {
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Progress value={0} aria-label="Not practised yet" />
@@ -45,27 +55,68 @@ function MasteryBar({ state }: { state: SkillStateView | null }) {
   return (
     <div className="flex items-center gap-2 text-xs">
       <Progress
-        value={Math.round(state.effectiveMastery * 100)}
-        className={bandProgressClass[state.band] ?? ""}
-        aria-label={`Mastery ${Math.round(state.effectiveMastery * 100)} percent`}
+        value={Math.round(node.effectiveMastery * 100)}
+        className={bandProgressClass[node.band] ?? ""}
+        aria-label={`Mastery ${Math.round(node.effectiveMastery * 100)} percent`}
       />
-      <span className={`w-28 shrink-0 text-right font-medium ${bandColor[state.band] ?? ""}`}>
-        {Math.round(state.effectiveMastery * 100)}% · {state.band.toLowerCase()}
+      <span className={`w-28 shrink-0 text-right font-medium ${bandColor[node.band] ?? ""}`}>
+        {Math.round(node.effectiveMastery * 100)}% · {node.band.toLowerCase()}
       </span>
     </div>
   );
 }
 
-interface TopicNodeProps {
-  node: NodeView;
-  learnerState: LearnerStateView | null;
-  onShowPrerequisites: (node: NodeView) => void;
+function MisconceptionList({ misconceptions }: { misconceptions: LearnerNodeWithStateView[] }) {
+  if (misconceptions.length === 0) return null;
+  return (
+    <div className="rounded-md border border-dashed p-2">
+      <p className="mb-1 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+        <TriangleAlert className="size-3" aria-hidden="true" />
+        Known misconceptions on this node
+      </p>
+      <ul className="list-inside list-disc space-y-0.5 text-xs">
+        {misconceptions.map((m) => (
+          <li key={m.id}>
+            {m.title}
+            {m.misconceptionActive === true && (
+              <span className="ml-1 font-medium text-amber-600 dark:text-amber-400">
+                (active {Math.round((m.misconceptionProbability ?? 0) * 100)}%)
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
-function TopicNode({ node, learnerState, onShowPrerequisites }: TopicNodeProps) {
+interface NestedNode extends LearnerNodeWithStateView {
+  children: NestedNode[];
+}
+
+function nest(
+  id: string,
+  byId: Map<string, LearnerNodeWithStateView>,
+): NestedNode | null {
+  const node = byId.get(id);
+  if (!node) return null;
+  const children = node.childIds
+    .map((cid) => nest(cid, byId))
+    .filter((c): c is NestedNode => c !== null);
+  return { ...node, children };
+}
+
+function TopicNode({
+  node,
+  onShowPrerequisites,
+  onPracticeTopic,
+}: {
+  node: NestedNode;
+  onShowPrerequisites: (node: NestedNode) => void;
+  onPracticeTopic: (nodeId: string, title: string) => void;
+}) {
   const misconceptions = node.children.filter((c) => c.type === "MISCONCEPTION");
   const children = node.children.filter((c) => c.type !== "MISCONCEPTION");
-  const state = masteryFor(learnerState, node.id);
 
   return (
     <AccordionItem value={node.id} className="border rounded-md px-4 mb-2">
@@ -74,41 +125,42 @@ function TopicNode({ node, learnerState, onShowPrerequisites }: TopicNodeProps) 
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">{node.title}</span>
             <Badge variant="outline" className="text-[10px]">{node.code}</Badge>
-            {state && (
+            {node.attempts !== null && (
               <Badge variant="secondary" className="text-[10px]">
-                {state.correctCount}/{state.attempts} correct
+                {node.correctCount}/{node.attempts} correct
               </Badge>
             )}
+            {node.reviewDueAt && (
+              <Badge className="bg-amber-500 hover:bg-amber-500 text-[10px]">review due</Badge>
+            )}
           </div>
-          <MasteryBar state={state} />
+          <MasteryBar node={node} />
         </div>
       </AccordionTrigger>
       <AccordionContent className="space-y-2">
         {node.description && (
           <p className="text-xs text-muted-foreground">{node.description}</p>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onShowPrerequisites(node)}
-          className="h-7 text-xs"
-        >
-          <Network className="size-3.5" aria-hidden="true" />
-          Prerequisite chain
-        </Button>
-        {misconceptions.length > 0 && (
-          <div className="rounded-md border border-dashed p-2">
-            <p className="mb-1 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-              <TriangleAlert className="size-3" aria-hidden="true" />
-              Known misconceptions on this node
-            </p>
-            <ul className="list-inside list-disc space-y-0.5 text-xs">
-              {misconceptions.map((m) => (
-                <li key={m.id}>{m.title}</li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onShowPrerequisites(node)}
+            className="h-7 text-xs"
+          >
+            <Network className="size-3.5" aria-hidden="true" />
+            Prerequisite chain
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onPracticeTopic(node.id, node.title)}
+            className="h-7 text-xs"
+          >
+            Practise this topic
+          </Button>
+        </div>
+        <MisconceptionList misconceptions={misconceptions} />
         {children.length > 0 && (
           <div className="space-y-1 pl-2">
             {children.map((child) => (
@@ -118,7 +170,10 @@ function TopicNode({ node, learnerState, onShowPrerequisites }: TopicNodeProps) 
                     <span className="text-xs font-medium">{child.title}</span>
                     <Badge variant="outline" className="text-[10px]">{child.code}</Badge>
                   </div>
-                  <MasteryBar state={masteryFor(learnerState, child.id)} />
+                  <MasteryBar node={child} />
+                  <MisconceptionList
+                    misconceptions={child.children.filter((c) => c.type === "MISCONCEPTION")}
+                  />
                 </div>
               </div>
             ))}
@@ -129,49 +184,189 @@ function TopicNode({ node, learnerState, onShowPrerequisites }: TopicNodeProps) 
   );
 }
 
-export function MasteryMap({ learnerState }: { learnerState: LearnerStateView | null }) {
-  const [subject, setSubject] = useState<SubjectView | null>(null);
-  const [tree, setTree] = useState<NodeView | null>(null);
-  const [prereqNode, setPrereqNode] = useState<NodeView | null>(null);
+function PrerequisiteChainCard({
+  node,
+  prerequisites,
+  onClose,
+}: {
+  node: LearnerNodeWithStateView;
+  prerequisites: PrerequisiteView[] | null;
+  onClose: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Network className="size-4 text-primary" aria-hidden="true" />
+          Prerequisites of {node.title}
+        </CardTitle>
+        <CardDescription>
+          The remediation path — deepest prerequisite first (Paper A type-1a prerequisite gaps).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {prerequisites === null ? (
+          <Skeleton className="h-16 w-full" />
+        ) : prerequisites.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No prerequisites recorded for this node.
+          </p>
+        ) : (
+          <ol className="space-y-2">
+            {prerequisites.map((p, index) => (
+              <li key={p.id} className="flex items-center gap-3">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold">
+                  {p.depth}
+                </span>
+                {index > 0 && <ArrowDown className="size-3 text-muted-foreground sr-only" aria-hidden="true" />}
+                <div className="flex-1 rounded-md border bg-muted/30 px-3 py-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{p.title}</span>
+                    <Badge variant="outline" className="text-[10px]">{p.code}</Badge>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+        <Button variant="ghost" size="sm" className="mt-3" onClick={onClose}>
+          Close
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function NodeDetailCard({
+  node,
+  byId,
+  onPracticeTopic,
+}: {
+  node: LearnerNodeWithStateView;
+  byId: Map<string, LearnerNodeWithStateView>;
+  onPracticeTopic: (nodeId: string, title: string) => void;
+}) {
   const [prerequisites, setPrerequisites] = useState<PrerequisiteView[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const misconceptions = node.childIds
+    .map((cid) => byId.get(cid))
+    .filter((c): c is LearnerNodeWithStateView => c?.type === "MISCONCEPTION");
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        setLoading(true);
-        const subjects = await api.subjects();
-        const chemistry = subjects.find((s) => s.knowledgeNodeId) ?? subjects[0] ?? null;
-        if (!cancelled && chemistry?.knowledgeNodeId) {
-          setSubject(chemistry);
-          setTree(await api.knowledgeTree(chemistry.knowledgeNodeId, true));
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load the knowledge graph");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const showPrerequisites = useCallback(async (node: NodeView) => {
-    setPrereqNode(node);
+  const loadChain = useCallback(async () => {
     setPrerequisites(null);
     try {
       setPrerequisites(await api.prerequisites(node.id));
     } catch {
       setPrerequisites([]);
     }
+  }, [node.id]);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          {node.title}
+          <Badge variant="outline" className="text-[10px]">{node.code}</Badge>
+          <Badge variant="secondary" className="text-[10px]">{node.type.toLowerCase()}</Badge>
+          {node.reviewDueAt && (
+            <Badge className="bg-amber-500 hover:bg-amber-500 text-[10px]">review due</Badge>
+          )}
+        </CardTitle>
+        {node.description && <CardDescription>{node.description}</CardDescription>}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <MasteryBar node={node} />
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {node.attempts !== null && <span>{node.correctCount}/{node.attempts} correct</span>}
+          {node.lastPracticedAt && <span>practised {formatRelative(node.lastPracticedAt)}</span>}
+          {node.proceduralFluencyGap != null && (
+            <span title="Untimed accuracy minus timed accuracy (Paper B §16 fluency gap)">
+              fluency gap Δ{node.proceduralFluencyGap >= 0 ? "+" : ""}
+              {node.proceduralFluencyGap.toFixed(2)}
+            </span>
+          )}
+          {node.reviewDueAt && (
+            <span>review: {node.reviewReason?.toLowerCase().replace(/_/g, " ")}</span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(node.type === "TOPIC" || node.type === "SUBTOPIC") && (
+            <Button size="sm" onClick={() => onPracticeTopic(node.id, node.title)} className="h-8 text-xs">
+              Practise this topic
+            </Button>
+          )}
+          {prerequisites === null && (
+            <Button variant="outline" size="sm" onClick={loadChain} className="h-8 text-xs">
+              <Network className="size-3.5" aria-hidden="true" />
+              Prerequisite chain
+            </Button>
+          )}
+        </div>
+        {prerequisites !== null && (
+          <div className="rounded-md border bg-muted/30 p-3">
+            <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+              Prerequisite chain (deepest first)
+            </p>
+            {prerequisites.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No prerequisites recorded.</p>
+            ) : (
+              <ol className="space-y-1">
+                {prerequisites.map((p) => (
+                  <li key={p.id} className="flex items-center gap-2 text-xs">
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold">
+                      {p.depth}
+                    </span>
+                    <span>{p.title}</span>
+                    <Badge variant="outline" className="text-[10px]">{p.code}</Badge>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
+        <MisconceptionList misconceptions={misconceptions} />
+      </CardContent>
+    </Card>
+  );
+}
+
+export function MasteryMap({
+  graph,
+  loading,
+  subjectName,
+  onPracticeTopic,
+}: {
+  graph: LearnerKnowledgeGraphView | null;
+  loading: boolean;
+  subjectName: string | null;
+  onPracticeTopic: (nodeId: string, title: string) => void;
+}) {
+  const [mode, setMode] = useState<"tree" | "graph">("tree");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [chainNode, setChainNode] = useState<NestedNode | null>(null);
+  const [chain, setChain] = useState<PrerequisiteView[] | null>(null);
+
+  const byId = useMemo(
+    () => new Map((graph?.nodes ?? []).map((n) => [n.id, n])),
+    [graph],
+  );
+  const root = useMemo(
+    () => (graph ? nest(graph.rootId, byId) : null),
+    [graph, byId],
+  );
+  const selected = selectedId ? (byId.get(selectedId) ?? null) : null;
+
+  // load the prerequisite chain on demand (same endpoint as before)
+  const showPrerequisites = useCallback(async (node: NestedNode) => {
+    setChainNode(node);
+    setChain(null);
+    try {
+      setChain(await api.prerequisites(node.id));
+    } catch {
+      setChain([]);
+    }
   }, []);
 
-  if (loading) {
+  if (loading && !graph) {
     return (
       <div className="space-y-3">
         <Skeleton className="h-8 w-64" />
@@ -181,120 +376,102 @@ export function MasteryMap({ learnerState }: { learnerState: LearnerStateView | 
     );
   }
 
-  if (error) {
+  if (!graph || !root) {
     return (
       <Alert variant="destructive">
         <AlertTitle>Knowledge graph unavailable</AlertTitle>
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    );
-  }
-
-  if (!tree) {
-    return (
-      <Alert>
-        <AlertTitle>No curriculum seeded</AlertTitle>
         <AlertDescription>
-          No subject has a linked knowledge-graph root yet — run the Flyway seed migrations.
+          The personalized graph could not be loaded — try again in a moment.
         </AlertDescription>
       </Alert>
     );
   }
 
-  const units = tree.children;
-
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Brain className="size-4 text-primary" aria-hidden="true" />
-            {subject?.name ?? tree.title} — mastery map
-          </CardTitle>
-          <CardDescription>
-            Bars show effective mastery (BKT estimate after forgetting decay since last
-            practice). Practise a topic to refresh it.
-          </CardDescription>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Brain className="size-4 text-primary" aria-hidden="true" />
+                {subjectName ?? graph.rootTitle} — mastery map
+              </CardTitle>
+              <CardDescription>
+                Bars show effective mastery (BKT estimate after forgetting decay since last
+                practice). Practise a topic to refresh it.
+              </CardDescription>
+            </div>
+            <ToggleGroup
+              type="single"
+              value={mode}
+              onValueChange={(v) => v && setMode(v as "tree" | "graph")}
+              aria-label="Mastery map view"
+            >
+              <ToggleGroupItem value="tree" className="gap-1.5 text-xs">
+                <ListTree className="size-3.5" aria-hidden="true" />
+                Tree
+              </ToggleGroupItem>
+              <ToggleGroupItem value="graph" className="gap-1.5 text-xs">
+                <Network className="size-3.5" aria-hidden="true" />
+                Graph
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
         </CardHeader>
         <CardContent className="space-y-2">
-          <Accordion type="multiple" className="space-y-2">
-            {units.map((unit) => (
-              <AccordionItem key={unit.id} value={unit.id} className="border rounded-md px-4">
-                <AccordionTrigger className="py-3 hover:no-underline">
-                  <div className="flex flex-1 items-center gap-2 text-left">
-                    <span className="text-sm font-semibold">{unit.title}</span>
-                    <Badge variant="outline" className="text-[10px]">{unit.code}</Badge>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="pb-3">
-                  <Accordion type="multiple" className="m-0 space-y-2">
-                    {unit.children
-                      .filter((t) => t.type === "TOPIC")
-                      .map((topic) => (
-                        <TopicNode
-                          key={topic.id}
-                          node={topic}
-                          learnerState={learnerState}
-                          onShowPrerequisites={showPrerequisites}
-                        />
-                      ))}
-                  </Accordion>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
+          {mode === "tree" ? (
+            <Accordion type="multiple" className="space-y-2">
+              {root.children.map((unit) => (
+                <AccordionItem key={unit.id} value={unit.id} className="border rounded-md px-4">
+                  <AccordionTrigger className="py-3 hover:no-underline">
+                    <div className="flex flex-1 items-center gap-2 text-left">
+                      <span className="text-sm font-semibold">{unit.title}</span>
+                      <Badge variant="outline" className="text-[10px]">{unit.code}</Badge>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="pb-3">
+                    <Accordion type="multiple" className="m-0 space-y-2">
+                      {unit.children
+                        .filter((t) => t.type === "TOPIC")
+                        .map((topic) => (
+                          <TopicNode
+                            key={topic.id}
+                            node={topic}
+                            onShowPrerequisites={showPrerequisites}
+                            onPracticeTopic={onPracticeTopic}
+                          />
+                        ))}
+                    </Accordion>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          ) : (
+            <KnowledgeGraphView
+              nodes={graph.nodes}
+              rootId={graph.rootId}
+              prerequisiteEdges={graph.prerequisiteEdges}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+          )}
         </CardContent>
       </Card>
 
-      {prereqNode && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Network className="size-4 text-primary" aria-hidden="true" />
-              Prerequisites of {prereqNode.title}
-            </CardTitle>
-            <CardDescription>
-              The remediation path — deepest prerequisite first (Paper A type-1a prerequisite gaps).
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {prerequisites === null ? (
-              <Skeleton className="h-16 w-full" />
-            ) : prerequisites.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No prerequisites recorded for this node.
-              </p>
-            ) : (
-              <ol className="space-y-2">
-                {prerequisites.map((p, index) => (
-                  <li key={p.id} className="flex items-center gap-3">
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold">
-                      {p.depth}
-                    </span>
-                    {index > 0 && <ArrowDown className="size-3 text-muted-foreground sr-only" aria-hidden="true" />}
-                    <div className="flex-1 rounded-md border bg-muted/30 px-3 py-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">{p.title}</span>
-                        <Badge variant="outline" className="text-[10px]">{p.code}</Badge>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-3"
-              onClick={() => {
-                setPrereqNode(null);
-                setPrerequisites(null);
-              }}
-            >
-              Close
-            </Button>
-          </CardContent>
-        </Card>
+      {mode === "graph" && selected && (
+        <NodeDetailCard node={selected} byId={byId} onPracticeTopic={onPracticeTopic} />
+      )}
+
+      {mode === "tree" && chainNode && (
+        <PrerequisiteChainCard
+          node={chainNode}
+          prerequisites={chain}
+          onClose={() => {
+            setChainNode(null);
+            setChain(null);
+          }}
+        />
       )}
     </div>
   );

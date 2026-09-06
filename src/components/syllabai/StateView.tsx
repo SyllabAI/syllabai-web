@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Activity, Brain, CalendarClock, TriangleAlert } from "lucide-react";
+import { formatRelative } from "@/lib/format";
 import type { LearnerStateView } from "@/lib/types";
 
 const bandClass: Record<string, string> = {
@@ -14,16 +15,6 @@ const bandClass: Record<string, string> = {
   DEVELOPING: "[&>div]:bg-amber-500",
   SECURE: "[&>div]:bg-emerald-500",
 };
-
-function formatRelative(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return `${Math.floor(hours / 24)} d ago`;
-}
 
 export function StateView({
   state,

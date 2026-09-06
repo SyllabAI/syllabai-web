@@ -13,6 +13,7 @@
 import type {
   AuthResponse,
   AttemptResultView,
+  LearnerKnowledgeGraphView,
   LearnerStateView,
   NodeView,
   PrerequisiteView,
@@ -147,6 +148,11 @@ export const api = {
     }),
 
   learnerState: () => request<LearnerStateView>("/api/v1/learners/me/state"),
+
+  learnerKnowledgeGraph: (rootId: string) =>
+    request<LearnerKnowledgeGraphView>(
+      `/api/v1/learners/me/knowledge-graph?rootId=${encodeURIComponent(rootId)}`,
+    ),
 
   tutorAsk: (question: string) =>
     request<TutorAnswerView>("/api/v1/tutor/ask", {

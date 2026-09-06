@@ -4,28 +4,40 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AppHeader } from "@/components/syllabai/AppHeader";
 import { LoginView } from "@/components/syllabai/LoginView";
+import { DashboardView } from "@/components/syllabai/DashboardView";
 import { MasteryMap } from "@/components/syllabai/MasteryMap";
 import { PracticeView } from "@/components/syllabai/PracticeView";
 import { StateView } from "@/components/syllabai/StateView";
 import { TutorChatView, type TutorChatMessage } from "@/components/syllabai/TutorChatView";
 import { clearSession, api, currentUser, getToken, setSession } from "@/lib/api";
-import type { AuthResponse, LearnerStateView, NodeView } from "@/lib/types";
-import { Brain, GraduationCap, LineChart, MessagesSquare } from "lucide-react";
-
-function collectTitles(node: NodeView, acc: Record<string, string>) {
-  acc[node.id] = node.title;
-  for (const child of node.children) collectTitles(child, acc);
-}
+import type { AuthResponse, LearnerKnowledgeGraphView, LearnerStateView } from "@/lib/types";
+import {
+  Brain,
+  GraduationCap,
+  LayoutDashboard,
+  LineChart,
+  MessagesSquare,
+} from "lucide-react";
 
 export default function SyllabAiWorkbench() {
   const [auth, setAuth] = useState<AuthResponse | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [learnerState, setLearnerState] = useState<LearnerStateView | null>(null);
   const [stateLoading, setStateLoading] = useState(false);
-  const [titles, setTitles] = useState<Record<string, string>>({});
+  // The personalized graph (F-034) feeds the dashboard + mastery map; the
+  // client-side tree + /state join is retired (T-028).
+  const [graph, setGraph] = useState<LearnerKnowledgeGraphView | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [rootId, setRootId] = useState<string | null>(null);
+  const [subjectName, setSubjectName] = useState<string | null>(null);
   // Tutor transcript lives here (not inside the tab) so it survives tab switches;
   // server-side sessions arrive with the Spec §22 tutor/sessions endpoints.
   const [tutorMessages, setTutorMessages] = useState<TutorChatMessage[]>([]);
+  // Controlled tabs so dashboard/map can deep-link into practice with a topic.
+  const [tab, setTab] = useState("dashboard");
+  const [practiceTopic, setPracticeTopic] = useState<{ nodeId: string; title: string } | null>(
+    null,
+  );
 
   // Restore session on first paint (token in localStorage, v0 pilot storage).
   useEffect(() => {
@@ -48,7 +60,18 @@ export default function SyllabAiWorkbench() {
     }
   }, []);
 
-  // Load learner state + node titles whenever a session exists.
+  const refreshGraph = useCallback(async (rid: string) => {
+    setGraphLoading(true);
+    try {
+      setGraph(await api.learnerKnowledgeGraph(rid));
+    } catch {
+      // the dashboard / map render their own error states
+    } finally {
+      setGraphLoading(false);
+    }
+  }, []);
+
+  // Load learner state + the personalized knowledge graph whenever a session exists.
   useEffect(() => {
     if (!auth) return;
     refreshState();
@@ -58,21 +81,37 @@ export default function SyllabAiWorkbench() {
         const subjects = await api.subjects();
         const withNode = subjects.find((s) => s.knowledgeNodeId);
         if (withNode?.knowledgeNodeId && !cancelled) {
-          const tree = await api.knowledgeTree(withNode.knowledgeNodeId, true);
-          const acc: Record<string, string> = {};
-          collectTitles(tree, acc);
-          if (!cancelled) setTitles(acc);
+          setRootId(withNode.knowledgeNodeId);
+          setSubjectName(withNode.name);
+          refreshGraph(withNode.knowledgeNodeId);
         }
       } catch {
-        // mastery map shows its own error state
+        // dashboard/map show their own error state
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [auth, refreshState]);
+  }, [auth, refreshState, refreshGraph]);
 
-  const misconceptionTitles = useMemo(() => titles, [titles]);
+  // After an attempt both read models change server-side (BKT + decay view).
+  const handleAttemptSubmitted = useCallback(() => {
+    refreshState();
+    if (rootId) refreshGraph(rootId);
+  }, [refreshState, refreshGraph, rootId]);
+
+  const titles = useMemo(() => {
+    const acc: Record<string, string> = {};
+    graph?.nodes.forEach((n) => {
+      acc[n.id] = n.title;
+    });
+    return acc;
+  }, [graph]);
+
+  const onPracticeTopic = useCallback((nodeId: string, title: string) => {
+    setPracticeTopic({ nodeId, title });
+    setTab("practice");
+  }, []);
 
   if (restoring) {
     return (
@@ -104,12 +143,20 @@ export default function SyllabAiWorkbench() {
           clearSession();
           setAuth(null);
           setLearnerState(null);
+          setGraph(null);
+          setRootId(null);
+          setSubjectName(null);
+          setTab("dashboard");
         }}
       />
 
       <main className="mx-auto w-full max-w-5xl flex-1 scroll-mt-16 px-4 py-6">
-        <Tabs defaultValue="practice" className="w-full">
-          <TabsList className="mb-4 grid w-full grid-cols-4">
+        <Tabs value={tab} onValueChange={setTab} className="w-full">
+          <TabsList className="mb-4 grid w-full grid-cols-5">
+            <TabsTrigger value="dashboard" className="gap-1.5">
+              <LayoutDashboard className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Dashboard</span>
+            </TabsTrigger>
             <TabsTrigger value="practice" className="gap-1.5">
               <GraduationCap className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">Practice</span>
@@ -128,21 +175,40 @@ export default function SyllabAiWorkbench() {
             </TabsTrigger>
           </TabsList>
 
+          <TabsContent value="dashboard">
+            <DashboardView
+              graph={graph}
+              state={learnerState}
+              loading={graphLoading}
+              onPracticeTopic={onPracticeTopic}
+              onOpenMap={() => setTab("map")}
+            />
+          </TabsContent>
           <TabsContent value="practice">
-            <PracticeView onAttemptSubmitted={refreshState} />
+            <PracticeView
+              onAttemptSubmitted={handleAttemptSubmitted}
+              topicNodeId={practiceTopic?.nodeId ?? null}
+              topicTitle={practiceTopic?.title ?? null}
+              onClearTopic={() => setPracticeTopic(null)}
+            />
           </TabsContent>
           <TabsContent value="tutor">
             <TutorChatView messages={tutorMessages} setMessages={setTutorMessages} />
           </TabsContent>
           <TabsContent value="map">
-            <MasteryMap learnerState={learnerState} />
+            <MasteryMap
+              graph={graph}
+              loading={graphLoading}
+              subjectName={subjectName}
+              onPracticeTopic={onPracticeTopic}
+            />
           </TabsContent>
           <TabsContent value="state">
             <StateView
               state={learnerState}
               loading={stateLoading}
               nodeTitles={titles}
-              misconceptionTitles={misconceptionTitles}
+              misconceptionTitles={titles}
             />
           </TabsContent>
         </Tabs>

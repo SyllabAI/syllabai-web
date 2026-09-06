@@ -161,3 +161,45 @@ export interface TutorAnswerView {
   refused: boolean;
   latencyMs: number;
 }
+
+// ── Personalized knowledge graph (T-028, mirrors the F-034 backend DTOs) ──
+
+/** KG node + THIS learner's annotations (null = honest "not practised / no signal"). */
+export interface LearnerNodeWithStateView {
+  id: string;
+  code: string;
+  type: string;
+  title: string;
+  description: string | null;
+  childIds: string[];
+  mastery: number | null;
+  effectiveMastery: number | null;
+  band: string | null;
+  attempts: number | null;
+  correctCount: number | null;
+  lastPracticedAt: string | null;
+  proceduralFluencyGap: number | null;
+  reviewDueAt: string | null;
+  reviewReason: string | null;
+  misconceptionProbability: number | null;
+  misconceptionActive: boolean | null;
+}
+
+/** A drawable prerequisite edge: prerequisiteId → nodeId (which requires it). */
+export interface LearnerPrerequisiteEdgeView {
+  prerequisiteId: string;
+  prerequisiteCode: string;
+  nodeId: string;
+  nodeCode: string;
+}
+
+/** GET /api/v1/learners/me/knowledge-graph response (F-034). */
+export interface LearnerKnowledgeGraphView {
+  learnerId: string;
+  rootId: string;
+  rootCode: string;
+  rootTitle: string;
+  asOf: string;
+  nodes: LearnerNodeWithStateView[];
+  prerequisiteEdges: LearnerPrerequisiteEdgeView[];
+}

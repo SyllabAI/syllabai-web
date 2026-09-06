@@ -18,7 +18,18 @@ import type { AttemptResultView, StudentQuestionView, StructuredAttemptResultVie
 
 const CONFIDENCE_LABELS = ["", "guessing", "unsure", "getting there", "confident", "certain"];
 
-export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () => void }) {
+export function PracticeView({
+  onAttemptSubmitted,
+  topicNodeId = null,
+  topicTitle = null,
+  onClearTopic,
+}: {
+  onAttemptSubmitted: () => void;
+  /** Set when the dashboard/mastery map deep-links into practice for a topic. */
+  topicNodeId?: string | null;
+  topicTitle?: string | null;
+  onClearTopic?: () => void;
+}) {
   const [questions, setQuestions] = useState<StudentQuestionView[] | null>(null);
   const [index, setIndex] = useState(0);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -34,9 +45,14 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
 
   useEffect(() => {
     let cancelled = false;
+    setIndex(0);
+    setResult(null);
+    setStructuredResult(null);
+    setChosen(null);
+    setPartAnswers({});
     (async () => {
       try {
-        const list = await api.questions();
+        const list = await api.questions(topicNodeId ?? undefined);
         if (!cancelled) setQuestions(list);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load questions");
@@ -45,7 +61,7 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [topicNodeId]);
 
   const question = questions?.[index] ?? null;
   const isStructured = question?.type === "STRUCTURED";
@@ -133,6 +149,23 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
   }
 
   if (!question) {
+    if (topicNodeId) {
+      return (
+        <Alert>
+          <AlertTitle>No questions on this topic yet</AlertTitle>
+          <AlertDescription>
+            {topicTitle
+              ? `No validated questions are linked to “${topicTitle}” yet — questions surface here once validated content covers it.`
+              : "No validated questions are linked to this topic yet."}
+          </AlertDescription>
+          {onClearTopic && (
+            <Button variant="outline" size="sm" className="mt-2" onClick={onClearTopic}>
+              Practise all topics
+            </Button>
+          )}
+        </Alert>
+      );
+    }
     return (
       <Alert>
         <AlertTitle>No questions seeded</AlertTitle>
@@ -143,6 +176,18 @@ export function PracticeView({ onAttemptSubmitted }: { onAttemptSubmitted: () =>
 
   return (
     <div className="space-y-4">
+      {topicNodeId && (
+        <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-1.5">
+          <p className="min-w-0 truncate text-xs text-muted-foreground">
+            Practising topic: <span className="font-medium text-foreground">{topicTitle ?? topicNodeId.slice(0, 8)}</span>
+          </p>
+          {onClearTopic && (
+            <Button variant="ghost" size="sm" className="h-6 shrink-0 text-xs" onClick={onClearTopic}>
+              All topics
+            </Button>
+          )}
+        </div>
+      )}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
