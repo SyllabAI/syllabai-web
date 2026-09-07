@@ -18,6 +18,7 @@ import type {
   KappaEvaluationView,
   LearnerKnowledgeGraphView,
   LearnerStateView,
+  NextBestActionsView,
   NodeView,
   PrerequisiteView,
   SmartMarkView,
@@ -157,6 +158,13 @@ export const api = {
   learnerKnowledgeGraph: (rootId: string) =>
     request<LearnerKnowledgeGraphView>(
       `/api/v1/learners/me/knowledge-graph?rootId=${encodeURIComponent(rootId)}`,
+    ),
+
+  // T-033: deterministic next-best-learning-action read model (Spec §22 route).
+  // Advice derived from evidence — distinct from the /state measured facts.
+  recommendations: (rootId: string) =>
+    request<NextBestActionsView>(
+      `/api/v1/learners/me/recommendations?rootId=${encodeURIComponent(rootId)}`,
     ),
 
   tutorAsk: (question: string) =>

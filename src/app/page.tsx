@@ -10,7 +10,12 @@ import { PracticeView } from "@/components/syllabai/PracticeView";
 import { StateView } from "@/components/syllabai/StateView";
 import { TutorChatView, type TutorChatMessage } from "@/components/syllabai/TutorChatView";
 import { clearSession, api, currentUser, getToken, setSession } from "@/lib/api";
-import type { AuthResponse, LearnerKnowledgeGraphView, LearnerStateView } from "@/lib/types";
+import type {
+  AuthResponse,
+  LearnerKnowledgeGraphView,
+  LearnerStateView,
+  NextBestActionsView,
+} from "@/lib/types";
 import { TeacherReviewView } from "@/components/syllabai/TeacherReviewView";
 import {
   Brain,
@@ -35,6 +40,11 @@ export default function SyllabAiWorkbench() {
   // Tutor transcript lives here (not inside the tab) so it survives tab switches;
   // server-side sessions arrive with the Spec §22 tutor/sessions endpoints.
   const [tutorMessages, setTutorMessages] = useState<TutorChatMessage[]>([]);
+  // T-033: next-best-action read model (nba-rules/v1) — refreshed together with
+  // state + graph because attempts change the evidence it ranks from.
+  const [recommendations, setRecommendations] = useState<NextBestActionsView | null>(null);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
   // Controlled tabs so dashboard/map can deep-link into practice with a topic.
   const [tab, setTab] = useState("dashboard");
   const [practiceTopic, setPracticeTopic] = useState<{ nodeId: string; title: string } | null>(
@@ -80,6 +90,20 @@ export default function SyllabAiWorkbench() {
     }
   }, []);
 
+  const refreshRecommendations = useCallback(async (rid: string) => {
+    setRecommendationsLoading(true);
+    setRecommendationsError(null);
+    try {
+      setRecommendations(await api.recommendations(rid));
+    } catch (err) {
+      // recommendations are advice, not facts — a failure here must not break
+      // the measured panels; the card renders its own honest error state
+      setRecommendationsError(err instanceof Error ? err.message : "unavailable");
+    } finally {
+      setRecommendationsLoading(false);
+    }
+  }, []);
+
   // Load learner state + the personalized knowledge graph whenever a session exists.
   useEffect(() => {
     if (!auth) return;
@@ -93,6 +117,7 @@ export default function SyllabAiWorkbench() {
           setRootId(withNode.knowledgeNodeId);
           setSubjectName(withNode.name);
           refreshGraph(withNode.knowledgeNodeId);
+          refreshRecommendations(withNode.knowledgeNodeId);
         }
       } catch {
         // dashboard/map show their own error state
@@ -101,13 +126,17 @@ export default function SyllabAiWorkbench() {
     return () => {
       cancelled = true;
     };
-  }, [auth, refreshState, refreshGraph]);
+  }, [auth, refreshState, refreshGraph, refreshRecommendations]);
 
-  // After an attempt both read models change server-side (BKT + decay view).
+  // After an attempt all three read models change server-side (BKT + decay
+  // view + the evidence the next-best actions rank from).
   const handleAttemptSubmitted = useCallback(() => {
     refreshState();
-    if (rootId) refreshGraph(rootId);
-  }, [refreshState, refreshGraph, rootId]);
+    if (rootId) {
+      refreshGraph(rootId);
+      refreshRecommendations(rootId);
+    }
+  }, [refreshState, refreshGraph, refreshRecommendations, rootId]);
 
   const titles = useMemo(() => {
     const acc: Record<string, string> = {};
@@ -197,8 +226,12 @@ export default function SyllabAiWorkbench() {
               graph={graph}
               state={learnerState}
               loading={graphLoading}
+              recommendations={recommendations}
+              recommendationsLoading={recommendationsLoading}
+              recommendationsError={recommendationsError}
               onPracticeTopic={onPracticeTopic}
               onOpenMap={() => setTab("map")}
+              onAskTutor={() => setTab("tutor")}
             />
           </TabsContent>
           <TabsContent value="practice">

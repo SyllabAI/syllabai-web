@@ -268,3 +268,47 @@ export interface KappaEvaluationView {
   passed: boolean;
   computedAt: string;
 }
+
+// ── T-033: next-best-learning-action read model (ADR-017 nba-rules/v1) ──
+
+export type NextBestActionType =
+  | "REVIEW_TOPIC"
+  | "PRACTISE_QUESTIONS"
+  | "REVIEW_PREREQUISITE"
+  | "RETRY_PROBLEM_QUESTION"
+  | "ASK_TUTOR"
+  | "TIMED_EXERCISE";
+
+export type NextBestReasonCode =
+  | "DUE_REVIEW"
+  | "PREREQUISITE_WEAK"
+  | "PROBLEM_QUESTION"
+  | "MISCONCEPTION_SUSPECTED"
+  | "FLUENCY_GAP"
+  | "LOW_MASTERY"
+  | "UNCOVERED_TOPIC";
+
+/** One ranked, evidence-backed learning action. Advice derived from measured
+ *  evidence — deliberately distinct from the dashboard's measured-fact cards. */
+export interface NextBestActionView {
+  rank: number;
+  actionType: NextBestActionType;
+  reasonCode: NextBestReasonCode;
+  targetNodeId: string;
+  targetCode: string;
+  targetTitle: string;
+  /** present only for RETRY_PROBLEM_QUESTION */
+  questionId: string | null;
+  /** validated questions currently mapped to the target topic (0 ⇒ honest empty state) */
+  servableQuestionCount: number;
+  /** deterministic, evidence-derived explanation (never an invented claim) */
+  reasonDetail: string;
+}
+
+export interface NextBestActionsView {
+  learnerId: string;
+  rootId: string;
+  asOf: string;
+  policy: string;
+  actions: NextBestActionView[];
+}

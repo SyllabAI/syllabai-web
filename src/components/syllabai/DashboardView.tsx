@@ -26,10 +26,12 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { formatDue, formatRelative, humanizeCode } from "@/lib/format";
+import { NextBestActionsCard } from "@/components/syllabai/NextBestActionsCard";
 import type {
   LearnerKnowledgeGraphView,
   LearnerNodeWithStateView,
   LearnerStateView,
+  NextBestActionsView,
 } from "@/lib/types";
 
 const bandProgressClass: Record<string, string> = {
@@ -67,14 +69,22 @@ export function DashboardView({
   graph,
   state,
   loading,
+  recommendations,
+  recommendationsLoading,
+  recommendationsError,
   onPracticeTopic,
   onOpenMap,
+  onAskTutor,
 }: {
   graph: LearnerKnowledgeGraphView | null;
   state: LearnerStateView | null;
   loading: boolean;
+  recommendations: NextBestActionsView | null;
+  recommendationsLoading: boolean;
+  recommendationsError: string | null;
   onPracticeTopic: (nodeId: string, title: string) => void;
   onOpenMap: () => void;
+  onAskTutor: () => void;
 }) {
   const summary = useMemo(() => {
     if (!graph) return null;
@@ -155,6 +165,16 @@ export function DashboardView({
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
+        {/* Next best actions — T-033 ranked advice derived from evidence (ADVICE,
+            deliberately distinct from the measured-fact cards below) */}
+        <NextBestActionsCard
+          view={recommendations}
+          loading={recommendationsLoading}
+          error={recommendationsError}
+          onPracticeTopic={onPracticeTopic}
+          onAskTutor={onAskTutor}
+        />
+
         {/* Mastery summary — facts from the personalized graph */}
         <Card>
           <CardHeader className="pb-3">
