@@ -13,6 +13,8 @@
  * - The transcript lives in React state lifted to the page (survives tab
  *   switches). Server-side session persistence arrives with the Spec §22
  *   `tutor/sessions` endpoints — not invented here.
+ * - A draft question can arrive from practice ("Ask tutor about this") —
+ *   it only pre-fills the input; the student edits and sends it themselves.
  * - Citation deep links currently target the teacher content API / KG nodes
  *   (raw JSON surfaces). Learners see the citation as a reference card;
  *   teacher/admin users additionally get an "Open source" anchor. In-app PDF
@@ -71,15 +73,30 @@ function isTeacherLike(): boolean {
 export function TutorChatView({
   messages,
   setMessages,
+  draft = null,
+  onDraftConsumed,
 }: {
   messages: TutorChatMessage[];
   setMessages: (next: TutorChatMessage[]) => void;
+  /** A question pre-filled from elsewhere in the app (e.g. a wrong answer) —
+   *  editable, never auto-sent. Consumed once loaded into the input. */
+  draft?: string | null;
+  onDraftConsumed?: () => void;
 }) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [highlightedCitation, setHighlightedCitation] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const teacher = isTeacherLike();
+
+  // A draft arriving from another surface fills the input (the student stays
+  // in control — they can edit or clear it before asking).
+  useEffect(() => {
+    if (draft) {
+      setInput(draft);
+      onDraftConsumed?.();
+    }
+  }, [draft, onDraftConsumed]);
 
   // keep the newest message in view
   useEffect(() => {

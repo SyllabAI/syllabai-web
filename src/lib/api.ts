@@ -11,6 +11,7 @@
  * hardening is tracked for Wave 4).
  */
 import type {
+  AttemptHistoryView,
   AuthResponse,
   AnswerMarkingView,
   AttemptResultView,
@@ -154,6 +155,13 @@ export const api = {
     }),
 
   learnerState: () => request<LearnerStateView>("/api/v1/learners/me/state"),
+
+  // Attempt history (Review Hub minimal slice) — read-only view over the
+  // learner's own attempts/answers evidence rows. Default limit 50 (max 100).
+  learnerAttempts: (limit?: number) =>
+    request<AttemptHistoryView>(
+      `/api/v1/learners/me/attempts${limit ? `?limit=${limit}` : ""}`,
+    ),
 
   learnerKnowledgeGraph: (rootId: string) =>
     request<LearnerKnowledgeGraphView>(

@@ -5,12 +5,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AppHeader } from "@/components/syllabai/AppHeader";
 import { LoginView } from "@/components/syllabai/LoginView";
 import { DashboardView } from "@/components/syllabai/DashboardView";
+import { HistoryView } from "@/components/syllabai/HistoryView";
 import { MasteryMap } from "@/components/syllabai/MasteryMap";
 import { PracticeView } from "@/components/syllabai/PracticeView";
 import { StateView } from "@/components/syllabai/StateView";
 import { TutorChatView, type TutorChatMessage } from "@/components/syllabai/TutorChatView";
 import { clearSession, api, currentUser, getToken, setSession } from "@/lib/api";
 import type {
+  AttemptHistoryView,
   AuthResponse,
   LearnerKnowledgeGraphView,
   LearnerStateView,
@@ -19,6 +21,7 @@ import type {
 import { TeacherReviewView } from "@/components/syllabai/TeacherReviewView";
 import {
   Brain,
+  ClipboardList,
   GraduationCap,
   LayoutDashboard,
   LineChart,
@@ -45,11 +48,19 @@ export default function SyllabAiWorkbench() {
   const [recommendations, setRecommendations] = useState<NextBestActionsView | null>(null);
   const [recommendationsLoading, setRecommendationsLoading] = useState(false);
   const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
-  // Controlled tabs so dashboard/map can deep-link into practice with a topic.
+  // Learning history (Review Hub slice): read-only view over the learner's own
+  // attempts — refreshed after each submission so the record is always current.
+  const [history, setHistory] = useState<AttemptHistoryView | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  // Controlled tabs so dashboard/map/history can deep-link into practice with a topic.
   const [tab, setTab] = useState("dashboard");
   const [practiceTopic, setPracticeTopic] = useState<{ nodeId: string; title: string } | null>(
     null,
   );
+  // Tutor draft: a question pre-filled from where the student came from
+  // (a wrong answer or the next-best-actions card) — editable, never auto-sent.
+  const [tutorDraft, setTutorDraft] = useState<string | null>(null);
   // T-029: the Teacher tab is a UI affordance for TEACHER/ADMIN accounts.
   // The backend enforces /api/v1/teacher/** (SecurityConfig) — this check only
   // decides whether the tab renders; it is never the authorization.
@@ -104,10 +115,25 @@ export default function SyllabAiWorkbench() {
     }
   }, []);
 
+  const refreshHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      setHistory(await api.learnerAttempts());
+    } catch (err) {
+      // history is a convenience surface — a failure must not break the app;
+      // the view renders its own honest error state
+      setHistoryError(err instanceof Error ? err.message : "unavailable");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
   // Load learner state + the personalized knowledge graph whenever a session exists.
   useEffect(() => {
     if (!auth) return;
     refreshState();
+    refreshHistory();
     let cancelled = false;
     (async () => {
       try {
@@ -126,17 +152,18 @@ export default function SyllabAiWorkbench() {
     return () => {
       cancelled = true;
     };
-  }, [auth, refreshState, refreshGraph, refreshRecommendations]);
+  }, [auth, refreshState, refreshGraph, refreshRecommendations, refreshHistory]);
 
-  // After an attempt all three read models change server-side (BKT + decay
-  // view + the evidence the next-best actions rank from).
+  // After an attempt all read models change server-side (BKT + decay view +
+  // the evidence the next-best actions rank from + the history record itself).
   const handleAttemptSubmitted = useCallback(() => {
     refreshState();
+    refreshHistory();
     if (rootId) {
       refreshGraph(rootId);
       refreshRecommendations(rootId);
     }
-  }, [refreshState, refreshGraph, refreshRecommendations, rootId]);
+  }, [refreshState, refreshGraph, refreshRecommendations, refreshHistory, rootId]);
 
   const titles = useMemo(() => {
     const acc: Record<string, string> = {};
@@ -149,6 +176,13 @@ export default function SyllabAiWorkbench() {
   const onPracticeTopic = useCallback((nodeId: string, title: string) => {
     setPracticeTopic({ nodeId, title });
     setTab("practice");
+  }, []);
+
+  // Weakness → tutor leg of the loop: pre-fill an editable question so the
+  // student can ask about exactly what they got wrong. Never auto-sends.
+  const onAskTutorAbout = useCallback((draft: string) => {
+    setTutorDraft(draft);
+    setTab("tutor");
   }, []);
 
   if (restoring) {
@@ -184,6 +218,8 @@ export default function SyllabAiWorkbench() {
           setGraph(null);
           setRootId(null);
           setSubjectName(null);
+          setHistory(null);
+          setTutorDraft(null);
           setTab("dashboard");
         }}
       />
@@ -191,7 +227,7 @@ export default function SyllabAiWorkbench() {
       <main className="mx-auto w-full max-w-5xl flex-1 scroll-mt-16 px-4 py-6">
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList
-            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-6" : "grid-cols-5"}`}
+            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-7" : "grid-cols-6"}`}
           >
             <TabsTrigger value="dashboard" className="gap-1.5">
               <LayoutDashboard className="size-4" aria-hidden="true" />
@@ -200,6 +236,10 @@ export default function SyllabAiWorkbench() {
             <TabsTrigger value="practice" className="gap-1.5">
               <GraduationCap className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">Practice</span>
+            </TabsTrigger>
+            <TabsTrigger value="history" className="gap-1.5">
+              <ClipboardList className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">History</span>
             </TabsTrigger>
             <TabsTrigger value="tutor" className="gap-1.5">
               <MessagesSquare className="size-4" aria-hidden="true" />
@@ -240,10 +280,24 @@ export default function SyllabAiWorkbench() {
               topicNodeId={practiceTopic?.nodeId ?? null}
               topicTitle={practiceTopic?.title ?? null}
               onClearTopic={() => setPracticeTopic(null)}
+              onAskTutorAbout={onAskTutorAbout}
+            />
+          </TabsContent>
+          <TabsContent value="history">
+            <HistoryView
+              history={history}
+              loading={historyLoading}
+              error={historyError}
+              onPracticeTopic={onPracticeTopic}
             />
           </TabsContent>
           <TabsContent value="tutor">
-            <TutorChatView messages={tutorMessages} setMessages={setTutorMessages} />
+            <TutorChatView
+              messages={tutorMessages}
+              setMessages={setTutorMessages}
+              draft={tutorDraft}
+              onDraftConsumed={() => setTutorDraft(null)}
+            />
           </TabsContent>
           <TabsContent value="map">
             <MasteryMap

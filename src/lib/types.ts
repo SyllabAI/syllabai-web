@@ -269,6 +269,54 @@ export interface KappaEvaluationView {
   computedAt: string;
 }
 
+// ── Attempt history (Review Hub minimal slice, mirrors core AttemptHistoryView) ──
+
+/** One written part of a structured attempt: labels and mark outcome only. */
+export interface AttemptHistoryPartView {
+  partId: string;
+  label: string;
+  marksPossible: number;
+  marksAwarded: number | null;
+  markingState: string;
+}
+
+/** One past attempt — a read over the immutable evidence rows. */
+export interface AttemptHistoryItem {
+  attemptId: string;
+  questionId: string;
+  questionType: string;
+  externalRef: string | null;
+  commandWord: string | null;
+  stemExcerpt: string;
+  marksTotal: number;
+  topicNodeId: string;
+  topicCode: string | null;
+  topicTitle: string | null;
+  /** null for structured attempts pending authoritative marking */
+  correct: boolean | null;
+  /** null while marking is pending */
+  marksAwarded: number | null;
+  markingState: string;
+  evidenceEmitted: boolean;
+  chosenOptionLabel: string | null;
+  correctOptionLabel: string | null;
+  implicatedMisconceptionIds: string[];
+  selfDoubtFlag: boolean;
+  timedCondition: boolean;
+  confidenceLevel: number | null;
+  responseTimeMs: number;
+  attemptedAt: string;
+  parts: AttemptHistoryPartView[];
+}
+
+/** GET /api/v1/learners/me/attempts response. */
+export interface AttemptHistoryView {
+  learnerId: string;
+  total: number;
+  returned: number;
+  attempts: AttemptHistoryItem[];
+}
+
 // ── T-033: next-best-learning-action read model (ADR-017 nba-rules/v1) ──
 
 export type NextBestActionType =

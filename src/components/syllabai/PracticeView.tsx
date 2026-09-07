@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CheckCircle2, Clock, Loader2, PenLine, Send, Timer, TriangleAlert, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Loader2, MessagesSquare, PenLine, Send, Timer, TriangleAlert, XCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import type { AttemptResultView, StudentQuestionView, StructuredAttemptResultView } from "@/lib/types";
 
@@ -23,12 +23,15 @@ export function PracticeView({
   topicNodeId = null,
   topicTitle = null,
   onClearTopic,
+  onAskTutorAbout,
 }: {
   onAttemptSubmitted: () => void;
   /** Set when the dashboard/mastery map deep-links into practice for a topic. */
   topicNodeId?: string | null;
   topicTitle?: string | null;
   onClearTopic?: () => void;
+  /** Weakness→tutor loop leg: pre-fills an editable tutor question (never auto-sends). */
+  onAskTutorAbout?: (draft: string) => void;
 }) {
   const [questions, setQuestions] = useState<StudentQuestionView[] | null>(null);
   const [index, setIndex] = useState(0);
@@ -282,6 +285,26 @@ export function PracticeView({
                 >
                   Retry this question
                 </Button>
+                {onAskTutorAbout && (
+                  <Button
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => {
+                      const stem = question?.stem.slice(0, 300) ?? "a question";
+                      const chosenLabel =
+                        question?.options.find((o) => o.id === chosen)?.label ?? "";
+                      const correctLabel = result.correctOptionLabel ?? "";
+                      onAskTutorAbout(
+                        `I got this question wrong${
+                          topicTitle ? ` on ${topicTitle}` : ""
+                        } and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${correctLabel}. Can you explain the chemistry behind the correct answer?`,
+                      );
+                    }}
+                  >
+                    <MessagesSquare className="size-4" aria-hidden="true" />
+                    Ask tutor about this
+                  </Button>
+                )}
               </div>
             </div>
           ) : (
