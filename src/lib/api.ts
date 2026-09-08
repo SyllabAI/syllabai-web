@@ -35,9 +35,13 @@ const TOKEN_KEY = "syllabai.token";
 const USER_KEY = "syllabai.user";
 
 export function apiPath(path: string): string {
-  // path arrives like "/api/v1/auth/login" or ".../tree?includeMisconceptions=true"
-  return API_BASE
-    ? `${API_BASE}${path}`
+  // path arrives like "/api/v1/auth/login" or ".../tree?includeMisconceptions=true".
+  // API_BASE is documented as the bare API origin (e.g. https://syllabai-core.onrender.com),
+  // but a trailing /api/v1 (as older deployment notes described) must not double the
+  // prefix — normalize it away so both operator conventions produce identical URLs.
+  const base = API_BASE.replace(/\/api\/v1$/, "");
+  return base
+    ? `${base}${path}`
     : `${path}${path.includes("?") ? "&" : "?"}XTransformPort=8080`;
 }
 
@@ -83,7 +87,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const response = await fetch(apiPath(path), { ...init, headers });
 
-  if (response.status === 401) {
+  if (response.status === 401 && !path.startsWith("/api/v1/auth/")) {
+    // an authenticated call lost its session (expired/invalid token) — clear and
+    // tell the user to sign in again. NOT for /auth/* itself: a 401 there means
+    // invalid credentials and must surface the backend's real message verbatim
+    // (the pre-fix rewrite showed "Session expired" on a wrong-password login).
     clearSession();
     throw new ApiError(401, "Session expired — please sign in again.");
   }

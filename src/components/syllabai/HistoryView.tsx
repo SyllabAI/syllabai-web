@@ -54,10 +54,23 @@ function formatDuration(ms: number): string {
 
 function OutcomeBadge({ item }: { item: AttemptHistoryItem }) {
   if (item.correct === null) {
+    // Structured attempts carry no pass/fail classification by design (a
+    // 1/2-mark answer is neither correct nor incorrect) — only a genuinely
+    // PENDING attempt "awaits marks". Once marks exist, the marks total and
+    // the marking-state chip below carry the facts; a pass/fail badge here
+    // would fabricate a classification the backend deliberately withholds.
+    if (item.markingState === "PENDING") {
+      return (
+        <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-400">
+          <Hourglass className="size-3" aria-hidden="true" />
+          awaiting marks
+        </Badge>
+      );
+    }
     return (
-      <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-400">
-        <Hourglass className="size-3" aria-hidden="true" />
-        awaiting marks
+      <Badge variant="outline" className="gap-1 border-slate-500/40 text-slate-600 dark:text-slate-300">
+        <ClipboardList className="size-3" aria-hidden="true" />
+        marked
       </Badge>
     );
   }
