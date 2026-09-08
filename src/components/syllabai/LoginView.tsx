@@ -65,7 +65,9 @@ export function LoginView({ onAuthenticated }: LoginViewProps) {
             <CardTitle>{mode === "login" ? "Sign in" : "Create a student account"}</CardTitle>
             <CardDescription>
               {mode === "login"
-                ? "Use your SyllabAI account, or the demo credentials below."
+                ? process.env.NODE_ENV !== "production"
+                  ? "Use your SyllabAI account, or the demo credentials below."
+                  : "Use your SyllabAI account."
                 : "Self-registration always creates a STUDENT role (Master Spec §6.1)."}
             </CardDescription>
           </CardHeader>
@@ -140,7 +142,7 @@ export function LoginView({ onAuthenticated }: LoginViewProps) {
               </Button>
             </form>
 
-            {mode === "login" && (
+            {mode === "login" && process.env.NODE_ENV !== "production" && (
               <div className="mt-4 rounded-md border border-dashed p-3 text-xs text-muted-foreground">
                 <p className="font-medium text-foreground">Demo accounts (local profile)</p>
                 <p>student@syllabai.dev / student-demo-1234</p>
