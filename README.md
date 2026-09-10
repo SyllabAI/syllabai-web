@@ -42,9 +42,20 @@ sandbox gateway or a reverse proxy.
 
 ## Deployment (Vercel)
 
+**Status: LIVE at <https://syllabai-web.vercel.app>** (deployed 2026-09-10;
+`NEXT_PUBLIC_API_BASE_URL=https://syllabai-core.onrender.com` verified baked
+into the production bundle by direct chunk inspection).
+
 1. Import this repo on Vercel (Hobby plan, $0).
-2. Set env var `NEXT_PUBLIC_API_BASE_URL` = the Render URL of `syllabai-core`.
-3. Ensure the backend's `SYLLABAI_CORS_ORIGINS` includes your Vercel domain.
+2. Set env var `NEXT_PUBLIC_API_BASE_URL` = the Render URL of `syllabai-core`
+   (bare origin, no trailing `/api/v1`; inlined at build time — changing it
+   requires a redeploy).
+3. **Required, not optional:** the backend's `SYLLABAI_CORS_ORIGINS` (Render
+   dashboard → syllabai-core → Environment) must include
+   `https://syllabai-web.vercel.app`. The backend default allow-list covers
+   `https://syllabai.vercel.app` — a different project name — so browser
+   sign-in fails with CORS 403 until this is set (empirically confirmed
+   2026-09-10).
 
 ## Tests / CI
 
