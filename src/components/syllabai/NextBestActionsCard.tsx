@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  BookOpenCheck,
   CalendarClock,
   Compass,
   HelpCircle,
@@ -60,6 +61,14 @@ const typeConfig: Record<
     icon: Timer,
     chip: "border-orange-500/40 text-orange-700 dark:text-orange-400",
   },
+  REMEDIATE_MISCONCEPTION: {
+    // v1.1: the settled T-C11 concept graph's validated REMEDIATED_BY
+    // relationship named this corrective concept — study it (practise when
+    // validated questions exist, otherwise the Tutor is the corrective surface)
+    label: "Fix misconception",
+    icon: BookOpenCheck,
+    chip: "border-teal-500/40 text-teal-700 dark:text-teal-400",
+  },
 };
 
 function ActionRow({
@@ -102,6 +111,12 @@ function ActionRow({
       </div>
       <div className="shrink-0 pt-0.5">
         {action.actionType === "ASK_TUTOR" ? (
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onAskTutor}>
+            Ask Tutor
+          </Button>
+        ) : action.actionType === "REMEDIATE_MISCONCEPTION" && action.servableQuestionCount === 0 ? (
+          // no validated questions on the corrective concept yet — the Tutor is
+          // the Cycle-1 grounded remediation surface
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onAskTutor}>
             Ask Tutor
           </Button>
