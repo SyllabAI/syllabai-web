@@ -27,5 +27,5 @@ jobs:
       - name: Lint
         run: bun run lint
 
-      - name: Production build (type-checked)
-        run: bunx next build
+      - name: Production build (type-checked, standalone copy steps exercised)
+        run: bun run build
