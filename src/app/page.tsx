@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AppHeader } from "@/components/syllabai/AppHeader";
 import { LoginView } from "@/components/syllabai/LoginView";
@@ -32,6 +32,12 @@ import {
 export default function SyllabAiWorkbench() {
   const [auth, setAuth] = useState<AuthResponse | null>(null);
   const [restoring, setRestoring] = useState(true);
+  // Logout/session-expiry epoch. The refresh callbacks below capture this value
+  // when they start and re-check it after every await: a request that resolves
+  // after the session was reset (explicit logout or a 401 mid-flight) must not
+  // repopulate the previous account's read models — the next user would
+  // otherwise see the prior account's mastery/history until their own fetch lands.
+  const sessionEpoch = useRef(0);
   const [learnerState, setLearnerState] = useState<LearnerStateView | null>(null);
   const [stateLoading, setStateLoading] = useState(false);
   // The personalized graph (F-034) feeds the dashboard + mastery map; the
@@ -84,6 +90,7 @@ export default function SyllabAiWorkbench() {
   // mid-session would clear localStorage while the UI stayed logged in — a
   // zombie state whose next data errors would render another account's shell.
   const resetSessionState = useCallback(() => {
+    sessionEpoch.current += 1; // invalidate every in-flight refresh above
     setAuth(null);
     setLearnerState(null);
     setGraph(null);
@@ -94,6 +101,10 @@ export default function SyllabAiWorkbench() {
     setTutorMessages([]);
     setRecommendations(null);
     setRecommendationsError(null);
+    setStateLoading(false);
+    setGraphLoading(false);
+    setRecommendationsLoading(false);
+    setHistoryLoading(false);
     setPracticeTopic(null);
     setTab("dashboard");
   }, []);
@@ -107,52 +118,67 @@ export default function SyllabAiWorkbench() {
   }, [resetSessionState]);
 
   const refreshState = useCallback(async () => {
+    const epoch = sessionEpoch.current;
     setStateLoading(true);
     try {
-      setLearnerState(await api.learnerState());
+      const state = await api.learnerState();
+      if (epoch === sessionEpoch.current) setLearnerState(state);
     } catch {
       // 401 already clears the session via the API client; ignore other errors here
     } finally {
-      setStateLoading(false);
+      if (epoch === sessionEpoch.current) setStateLoading(false);
     }
   }, []);
 
   const refreshGraph = useCallback(async (rid: string) => {
+    const epoch = sessionEpoch.current;
     setGraphLoading(true);
     try {
-      setGraph(await api.learnerKnowledgeGraph(rid));
+      const next = await api.learnerKnowledgeGraph(rid);
+      if (epoch === sessionEpoch.current) setGraph(next);
     } catch {
       // the dashboard / map render their own error states
     } finally {
-      setGraphLoading(false);
+      if (epoch === sessionEpoch.current) setGraphLoading(false);
     }
   }, []);
 
   const refreshRecommendations = useCallback(async (rid: string) => {
+    const epoch = sessionEpoch.current;
     setRecommendationsLoading(true);
     setRecommendationsError(null);
     try {
-      setRecommendations(await api.recommendations(rid));
+      const next = await api.recommendations(rid);
+      if (epoch === sessionEpoch.current) {
+        setRecommendations(next);
+        setRecommendationsError(null);
+      }
     } catch (err) {
       // recommendations are advice, not facts — a failure here must not break
       // the measured panels; the card renders its own honest error state
-      setRecommendationsError(err instanceof Error ? err.message : "unavailable");
+      if (epoch === sessionEpoch.current) {
+        setRecommendationsError(err instanceof Error ? err.message : "unavailable");
+      }
     } finally {
-      setRecommendationsLoading(false);
+      if (epoch === sessionEpoch.current) setRecommendationsLoading(false);
     }
   }, []);
 
   const refreshHistory = useCallback(async () => {
+    const epoch = sessionEpoch.current;
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      setHistory(await api.learnerAttempts());
+      const next = await api.learnerAttempts();
+      if (epoch === sessionEpoch.current) setHistory(next);
     } catch (err) {
       // history is a convenience surface — a failure must not break the app;
       // the view renders its own honest error state
-      setHistoryError(err instanceof Error ? err.message : "unavailable");
+      if (epoch === sessionEpoch.current) {
+        setHistoryError(err instanceof Error ? err.message : "unavailable");
+      }
     } finally {
-      setHistoryLoading(false);
+      if (epoch === sessionEpoch.current) setHistoryLoading(false);
     }
   }, []);
 

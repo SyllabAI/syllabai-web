@@ -91,19 +91,27 @@ export function ConceptGraphView() {
 
   useEffect(() => {
     if (!rootId) return;
+    let cancelled = false;
     setTreeState("loading");
     setGraphError(null);
     setSelectedSp(null);
     Promise.all([api.knowledgeTree(rootId, true), api.conceptGraphEdges(rootId)])
       .then(([treeView, edgeView]) => {
+        // fast subject switches: the slower request must not render one
+        // subject's tree/edges under another subject's selection
+        if (cancelled) return;
         setTree(treeView);
         setEdges(edgeView.edges);
         setTreeState("ready");
       })
       .catch((e) => {
+        if (cancelled) return;
         setGraphError(e instanceof ApiError ? e.message : "Could not load the concept graph.");
         setTreeState("error");
       });
+    return () => {
+      cancelled = true;
+    };
   }, [rootId]);
 
   const activate = useCallback(async () => {

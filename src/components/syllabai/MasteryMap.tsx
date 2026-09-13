@@ -7,7 +7,7 @@
  * accessible default; the graph view (F-036) adds the spatial overview with
  * prerequisite edges.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -252,15 +252,22 @@ function NodeDetailCard({
   onPracticeTopic: (nodeId: string, title: string) => void;
 }) {
   const [prerequisites, setPrerequisites] = useState<PrerequisiteView[] | null>(null);
+  // last-request-wins: drop a slow response if the node under the card has
+  // changed meanwhile, so a chain never renders under the wrong node
+  const chainReqRef = useRef<string | null>(null);
   const misconceptions = node.childIds
     .map((cid) => byId.get(cid))
     .filter((c): c is LearnerNodeWithStateView => c?.type === "MISCONCEPTION");
 
   const loadChain = useCallback(async () => {
+    chainReqRef.current = node.id;
     setPrerequisites(null);
     try {
-      setPrerequisites(await api.prerequisites(node.id));
+      const chainView = await api.prerequisites(node.id);
+      if (chainReqRef.current !== node.id) return;
+      setPrerequisites(chainView);
     } catch {
+      if (chainReqRef.current !== node.id) return;
       setPrerequisites([]);
     }
   }, [node.id]);
@@ -349,6 +356,9 @@ export function MasteryMap({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [chainNode, setChainNode] = useState<NestedNode | null>(null);
   const [chain, setChain] = useState<PrerequisiteView[] | null>(null);
+  // last-request-wins: clicking topic A then topic B must not let A's slower
+  // chain response attach to B's open panel
+  const chainReqRef = useRef<string | null>(null);
 
   const byId = useMemo(
     () => new Map((graph?.nodes ?? []).map((n) => [n.id, n])),
@@ -362,11 +372,15 @@ export function MasteryMap({
 
   // load the prerequisite chain on demand (same endpoint as before)
   const showPrerequisites = useCallback(async (node: NestedNode) => {
+    chainReqRef.current = node.id;
     setChainNode(node);
     setChain(null);
     try {
-      setChain(await api.prerequisites(node.id));
+      const chainView = await api.prerequisites(node.id);
+      if (chainReqRef.current !== node.id) return;
+      setChain(chainView);
     } catch {
+      if (chainReqRef.current !== node.id) return;
       setChain([]);
     }
   }, []);

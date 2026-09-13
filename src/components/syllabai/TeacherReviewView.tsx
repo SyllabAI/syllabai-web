@@ -16,7 +16,7 @@
  * - κ states are explicit: none recorded yet / not enough paired decisions.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -104,7 +104,10 @@ export function TeacherReviewView() {
 
   // kappa gate
   const [kappa, setKappa] = useState<KappaEvaluationView | null>(null);
-  const [kappaStatus, setKappaStatus] = useState<"none" | "conflict" | "ok" | "loading">("loading");
+  const [kappaStatus, setKappaStatus] = useState<
+    "none" | "conflict" | "ok" | "loading" | "error"
+  >("loading");
+  const [kappaError, setKappaError] = useState<string | null>(null);
 
   const loadLearners = useCallback(async () => {
     setLearnersError(null);
@@ -115,33 +118,46 @@ export function TeacherReviewView() {
     }
   }, []);
 
+  // Last-request-wins guards: rapid state-tab switches or answer clicks must
+  // never let a slower older response overwrite the newer one (a human mark
+  // recorded from a queue/detail that no longer matches the visible list is a
+  // wrong-mark hazard, not a cosmetic glitch).
+  const queueSeq = useRef(0);
+  const detailSeq = useRef(0);
+
   const loadQueue = useCallback(async (state: string) => {
+    const seq = ++queueSeq.current;
     setQueueLoading(true);
     setQueueError(null);
     try {
-      setQueue(await api.markingQueue(state));
+      const view = await api.markingQueue(state);
+      if (seq !== queueSeq.current) return; // a newer state switch won
+      setQueue(view);
     } catch (e) {
+      if (seq !== queueSeq.current) return;
       setQueueError(e instanceof ApiError ? e.message : "Could not load the marking queue.");
     } finally {
-      setQueueLoading(false);
+      if (seq === queueSeq.current) setQueueLoading(false);
     }
   }, []);
 
   const loadKappa = useCallback(async () => {
     setKappaStatus("loading");
+    setKappaError(null);
     try {
       setKappa(await api.kappaLatest());
       setKappaStatus("ok");
     } catch (e) {
+      setKappa(null);
       if (is404(e)) {
-        setKappa(null);
         setKappaStatus("none");
       } else if (is409(e)) {
-        setKappa(null);
         setKappaStatus("conflict");
       } else {
-        setKappa(null);
-        setKappaStatus("none");
+        // honesty rule (file header): a 500 / network failure is NOT "none
+        // recorded" — say so and surface the reason instead
+        setKappaStatus("error");
+        setKappaError(e instanceof ApiError ? e.message : "Could not reach the κ evaluation.");
       }
     }
   }, []);
@@ -161,11 +177,13 @@ export function TeacherReviewView() {
 
   const selectAnswer = useCallback(
     async (answerId: string) => {
+      const seq = ++detailSeq.current;
       setDetailError(null);
       setActionError(null);
       setActionNotice(null);
       try {
         const view = await api.markingAnswer(answerId);
+        if (seq !== detailSeq.current) return; // a newer selection won
         setDetail(view);
         setMarksInput(view.latestHumanMark ? String(view.latestHumanMark.marksAwarded) : "");
         setComments(view.latestHumanMark?.comments ?? "");
@@ -177,6 +195,7 @@ export function TeacherReviewView() {
         });
         setPointDecisions(seeds);
       } catch (e) {
+        if (seq !== detailSeq.current) return;
         setDetail(null);
         setDetailError(e instanceof ApiError ? e.message : "Could not load the answer.");
       }
@@ -410,7 +429,9 @@ export function TeacherReviewView() {
               <span className="text-sm text-muted-foreground">
                 {kappaStatus === "conflict"
                   ? "No paired smart/human point decisions available yet."
-                  : "No κ evaluation recorded yet."}
+                  : kappaStatus === "error"
+                    ? (kappaError ?? "Could not load the κ evaluation.")
+                    : "No κ evaluation recorded yet."}
               </span>
               <Button
                 variant="outline"
