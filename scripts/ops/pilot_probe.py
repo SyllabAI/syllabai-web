@@ -197,17 +197,38 @@ def check_learner() -> None:
     rooted = [s for s in subs if s.get("knowledgeNodeId")]
     record("learner", True, f"login + {len(subs)} subjects ({len(rooted)} with KG root)")
 
-    # practice list on the first rooted subject
+    # practice list + NBA on the first rooted subject THAT SERVES validated
+    # questions (recovery 2026-09-13: since 4CH1 activation, subjects[0] is 4CH1
+    # — honest-empty by design, and its 370-node subtree makes its NBA scan the
+    # slowest call on the 0.1-CPU Render free tier; the learner loop the pilot
+    # actually runs is the question-serving subject). Fall back to the first
+    # rooted subject when none serves questions yet.
     if rooted:
-        root = rooted[0]["knowledgeNodeId"]
-        status, qs, err = http("GET", f"{BACKEND}/api/v1/questions?rootId={root}",
-                               headers=auth)
-        record("learner-practice", status == 200 and isinstance(qs, list),
-               f"practice list → {status}, {len(qs) if isinstance(qs, list) else qs} questions",
-               "practice listing broken")
+        serving = None
+        for s in rooted:
+            status, qs, err = http("GET",
+                                   f"{BACKEND}/api/v1/questions?rootId={s['knowledgeNodeId']}",
+                                   headers=auth)
+            if status == 200 and isinstance(qs, list) and qs:
+                serving = (s, qs)
+                break
+        if serving:
+            s, qs = serving
+            root = s["knowledgeNodeId"]
+            record("learner-practice", True,
+                   f"practice list → 200, {len(qs)} questions ({s.get('code')})",
+                   "")
+        else:
+            root = rooted[0]["knowledgeNodeId"]
+            status, qs, err = http("GET", f"{BACKEND}/api/v1/questions?rootId={root}",
+                                   headers=auth)
+            record("learner-practice", status == 200 and isinstance(qs, list),
+                   f"practice list → {status}, "
+                   f"{len(qs) if isinstance(qs, list) else qs} questions",
+                   "practice listing broken")
         status, rec, err = http("GET",
                                 f"{BACKEND}/api/v1/learners/me/recommendations?rootId={root}",
-                                headers=auth)
+                                headers=auth, timeout=120)
         policy = rec.get("policy") if isinstance(rec, dict) else None
         record("learner-nba", status == 200 and policy == "nba-rules/v1.1",
                f"recommendations → {status}, policy {policy}",
@@ -275,8 +296,13 @@ def check_teacher(ch1: dict | None) -> None:
     # activation idempotency re-verification — weekly/manual only
     if EVENT_NAME == "schedule" and EVENT_SCHEDULE not in ("", "33 9 * * 0"):
         return
+    # recovery 2026-09-13: the idempotent re-activation re-validates the whole
+    # 340-node/496-edge seed and takes 60–120 s on the 0.1-CPU Render free tier
+    # (measured) — the 30 s default timed out and misreported a healthy
+    # production backend as failing. 300 s matches the health check's
+    # cold-start tolerance philosophy; the check itself is unchanged.
     status, summary, err = http("POST", f"{BACKEND}/api/v1/teacher/concept-graph/activate",
-                                headers=auth)
+                                headers=auth, timeout=300)
     if status == 200 and isinstance(summary, dict):
         nc, ec = summary.get("nodesCreated"), summary.get("edgesCreated")
         record("teacher-activation", nc == 0 and ec == 0,
