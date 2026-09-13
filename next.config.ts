@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
     // typed builds are enforced — keep this on; CI runs `npm run build`
     ignoreBuildErrors: false,
   },
-  reactStrictMode: false,
+  reactStrictMode: true,
 };
 
 export default nextConfig;
