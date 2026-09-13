@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Activity, Brain, CalendarClock, TriangleAlert } from "lucide-react";
-import { formatRelative } from "@/lib/format";
+import { formatDue, formatRelative } from "@/lib/format";
 import type { LearnerStateView } from "@/lib/types";
 
 const bandClass: Record<string, string> = {
@@ -188,7 +188,7 @@ export function StateView({
                 <li key={i} className="flex items-center justify-between rounded-md border px-3 py-1.5">
                   <span>{nodeTitles[r.nodeId] ?? r.nodeId.slice(0, 8)}</span>
                   <span className="text-xs text-muted-foreground">
-                    due {formatRelative(r.dueAt).replace(" ago", "")} ago
+                    {formatDue(r.dueAt)}
                   </span>
                 </li>
               ))}

@@ -14,7 +14,7 @@ Java backend's `/api/v1`:
 - **Practice** — question player with options, confidence slider (1–5), self-doubt
   flag and timed-mode checkbox (Paper B §3.5 / §16 telemetry inputs), immediate
   feedback including misconception signals from the chosen distractor.
-- **Mastery map** — Edexcel IAL Chemistry knowledge tree (units → topics →
+- **Mastery map** — Edexcel IGCSE Chemistry knowledge tree (units → topics →
   subtopics) with BKT mastery bars (effective mastery after Ebbinghaus decay),
   known-misconception lists per topic and the prerequisite remediation chain.
 - **My state** — BKT skill table (stored vs effective mastery), BDT misconception

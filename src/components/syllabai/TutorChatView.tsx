@@ -25,7 +25,7 @@
  *   (research traceability, Master Spec §19).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -77,7 +77,7 @@ export function TutorChatView({
   onDraftConsumed,
 }: {
   messages: TutorChatMessage[];
-  setMessages: (next: TutorChatMessage[]) => void;
+  setMessages: Dispatch<SetStateAction<TutorChatMessage[]>>;
   /** A question pre-filled from elsewhere in the app (e.g. a wrong answer) —
    *  editable, never auto-sent. Consumed once loaded into the input. */
   draft?: string | null;
@@ -87,6 +87,9 @@ export function TutorChatView({
   const [sending, setSending] = useState(false);
   const [highlightedCitation, setHighlightedCitation] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  // In-flight guard via ref: the state flag alone is stale inside the closure
+  // until re-render, so a fast double-Enter could fire two tutor calls.
+  const sendingRef = useRef(false);
   const teacher = isTeacherLike();
 
   // A draft arriving from another surface fills the input (the student stays
@@ -108,29 +111,26 @@ export function TutorChatView({
 
   async function send(question: string) {
     const trimmed = question.trim();
-    if (!trimmed || trimmed.length > MAX_QUESTION_CHARS || sending) return;
+    if (!trimmed || trimmed.length > MAX_QUESTION_CHARS || sendingRef.current) return;
+    sendingRef.current = true;
     setInput("");
-    setMessages([...messages, { kind: "user", text: trimmed, at: Date.now() }]);
+    // Functional updates: append to the LIVE transcript, never rebuild from the
+    // render-time snapshot — the old [...messages, ...] form dropped optimistic
+    // bubbles and duplicated the user turn when retrying an error message.
+    setMessages((prev) => [...prev, { kind: "user", text: trimmed, at: Date.now() }]);
     setSending(true);
     try {
       const result = await api.tutorAsk(trimmed);
-      setMessages([
-        ...messages,
-        { kind: "user", text: trimmed, at: Date.now() },
-        { kind: "assistant", result, at: Date.now() },
-      ]);
+      setMessages((prev) => [...prev, { kind: "assistant", result, at: Date.now() }]);
     } catch (err) {
       const text =
         err instanceof ApiError
           ? err.message
           : "The tutor could not be reached. Check your connection and try again.";
-      setMessages([
-        ...messages,
-        { kind: "user", text: trimmed, at: Date.now() },
-        { kind: "error", text, question: trimmed, at: Date.now() },
-      ]);
+      setMessages((prev) => [...prev, { kind: "error", text, question: trimmed, at: Date.now() }]);
     } finally {
       setSending(false);
+      sendingRef.current = false;
     }
   }
 

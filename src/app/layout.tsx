@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "SyllabAI — Learner Workbench",
   description:
-    "Knowledge-graph driven practice with BKT mastery tracking, misconception diagnosis and Ebbinghaus review. Cycle 1: Edexcel IAL Chemistry.",
+    "Knowledge-graph driven practice with BKT mastery tracking, misconception diagnosis and Ebbinghaus review. Cycle 1: Edexcel IGCSE Chemistry.",
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },

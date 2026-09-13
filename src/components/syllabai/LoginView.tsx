@@ -55,7 +55,7 @@ export function LoginView({ onAuthenticated }: LoginViewProps) {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">SyllabAI</h1>
             <p className="text-sm text-muted-foreground">
-              Knowledge-graph practice with mastery tracking — Edexcel IAL Chemistry (Cycle 1)
+              Knowledge-graph practice with mastery tracking — Edexcel IGCSE Chemistry (Cycle 1)
             </p>
           </div>
         </div>

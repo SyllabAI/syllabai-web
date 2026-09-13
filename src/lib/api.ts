@@ -93,6 +93,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // invalid credentials and must surface the backend's real message verbatim
     // (the pre-fix rewrite showed "Session expired" on a wrong-password login).
     clearSession();
+    // Tell the app tree to drop every per-user read model and return to the
+    // login screen (page.tsx listens) — clearing storage alone used to leave a
+    // zombie logged-in UI that kept failing on every subsequent call.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("syllabai:session-expired"));
+    }
     throw new ApiError(401, "Session expired — please sign in again.");
   }
   if (!response.ok) {

@@ -80,7 +80,14 @@ function ActionRow({
   onPracticeTopic: (nodeId: string, title: string) => void;
   onAskTutor: () => void;
 }) {
-  const config = typeConfig[action.actionType];
+  // Defensive fallback: the backend can ship a new rule version with an action
+  // type this UI build doesn't know. config.icon would crash the dashboard —
+  // render a neutral, humanized row instead.
+  const config = typeConfig[action.actionType] ?? {
+    label: humanizeCode(action.actionType),
+    icon: Compass,
+    chip: "border-muted-foreground/40 text-muted-foreground",
+  };
   const Icon = config.icon;
   const isPracticeAction =
     action.actionType !== "ASK_TUTOR" && action.servableQuestionCount > 0;

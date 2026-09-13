@@ -69,7 +69,10 @@ function computeLayout(
   const slotByDepth: number[] = [];
 
   // leaf nodes take the next slot in their column; parents centre over children
+  const placed = new Set<string>(); // cycle/diamond guard — see place()
   const place = (id: string, depth: number): number => {
+    if (placed.has(id)) return yById.get(id) ?? 0;
+    placed.add(id);
     depthById.set(id, depth);
     const node = byId.get(id);
     const childIds = (node?.childIds ?? []).filter(

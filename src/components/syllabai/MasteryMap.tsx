@@ -97,11 +97,16 @@ interface NestedNode extends LearnerNodeWithStateView {
 function nest(
   id: string,
   byId: Map<string, LearnerNodeWithStateView>,
+  seen: Set<string> = new Set(),
 ): NestedNode | null {
+  // Cycle guard: the KG is a DAG by construction, but a data defect must not
+  // recurse infinitely (stack overflow) — cut the back-edge instead.
+  if (seen.has(id)) return null;
+  seen.add(id);
   const node = byId.get(id);
   if (!node) return null;
   const children = node.childIds
-    .map((cid) => nest(cid, byId))
+    .map((cid) => nest(cid, byId, seen))
     .filter((c): c is NestedNode => c !== null);
   return { ...node, children };
 }

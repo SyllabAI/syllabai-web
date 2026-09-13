@@ -216,7 +216,14 @@ export function TeacherReviewView() {
 
   const submitHumanMark = useCallback(
     async (answerId: string, partMarks: number) => {
-      const marks = Number(marksInput);
+      // Guard the blank field FIRST: Number("") is 0, so the old check let an
+      // empty input through as a legitimate zero-mark submission.
+      const raw = marksInput.trim();
+      if (raw === "") {
+        setActionError("Enter the marks awarded before submitting.");
+        return;
+      }
+      const marks = Number(raw);
       if (!Number.isInteger(marks) || marks < 0 || marks > partMarks) {
         setActionError(`Marks must be a whole number between 0 and ${partMarks}.`);
         return;

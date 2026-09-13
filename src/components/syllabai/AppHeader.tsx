@@ -28,7 +28,7 @@ export function AppHeader({ user, onLogout }: AppHeaderProps) {
           </div>
           <div className="leading-tight">
             <p className="text-sm font-bold">SyllabAI</p>
-            <p className="text-xs text-muted-foreground">IAL Chemistry · Cycle 1</p>
+            <p className="text-xs text-muted-foreground">IGCSE Chemistry · Cycle 1</p>
           </div>
         </div>
 

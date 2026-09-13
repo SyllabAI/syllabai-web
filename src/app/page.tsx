@@ -79,6 +79,33 @@ export default function SyllabAiWorkbench() {
     setRestoring(false);
   }, []);
 
+  // One place to wipe every per-user read model. Used by the explicit logout
+  // AND by the API client's session-expired event: without the latter, a 401
+  // mid-session would clear localStorage while the UI stayed logged in — a
+  // zombie state whose next data errors would render another account's shell.
+  const resetSessionState = useCallback(() => {
+    setAuth(null);
+    setLearnerState(null);
+    setGraph(null);
+    setRootId(null);
+    setSubjectName(null);
+    setHistory(null);
+    setTutorDraft(null);
+    setTutorMessages([]);
+    setRecommendations(null);
+    setRecommendationsError(null);
+    setPracticeTopic(null);
+    setTab("dashboard");
+  }, []);
+
+  // The API client clears localStorage on an authenticated-call 401 and fires
+  // this window event; landing back on the login screen is the visible half.
+  useEffect(() => {
+    const onSessionExpired = () => resetSessionState();
+    window.addEventListener("syllabai:session-expired", onSessionExpired);
+    return () => window.removeEventListener("syllabai:session-expired", onSessionExpired);
+  }, [resetSessionState]);
+
   const refreshState = useCallback(async () => {
     setStateLoading(true);
     try {
@@ -213,14 +240,7 @@ export default function SyllabAiWorkbench() {
         user={auth.user}
         onLogout={() => {
           clearSession();
-          setAuth(null);
-          setLearnerState(null);
-          setGraph(null);
-          setRootId(null);
-          setSubjectName(null);
-          setHistory(null);
-          setTutorDraft(null);
-          setTab("dashboard");
+          resetSessionState();
         }}
       />
 
@@ -327,7 +347,7 @@ export default function SyllabAiWorkbench() {
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-muted-foreground">
           <span>SyllabAI — research prototype (Cycle 1 pilot)</span>
           <span>
-            BKT · BDT misconception tracking · Ebbinghaus decay · Edexcel IAL Chemistry
+            BKT · BDT misconception tracking · Ebbinghaus decay · Edexcel IGCSE Chemistry
           </span>
         </div>
       </footer>
