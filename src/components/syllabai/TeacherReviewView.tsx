@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatRelative, humanizeCode } from "@/lib/format";
+import { ConceptGraphView } from "@/components/syllabai/ConceptGraphView";
 import type {
   AnswerMarkingView,
   KappaEvaluationView,
@@ -96,6 +97,10 @@ export function TeacherReviewView() {
   const [marksInput, setMarksInput] = useState("");
   const [comments, setComments] = useState("");
   const [pointDecisions, setPointDecisions] = useState<Record<string, number>>({});
+
+  // V15: the teacher tab hosts two surfaces — the Cycle-1 marking review
+  // queue and the curriculum concept graph (4CH1 seed + T-C11 settled layer)
+  const [surface, setSurface] = useState<"marking" | "graph">("marking");
 
   // kappa gate
   const [kappa, setKappa] = useState<KappaEvaluationView | null>(null);
@@ -284,15 +289,30 @@ export function TeacherReviewView() {
 
   return (
     <div className="space-y-4">
-      <Alert>
-        <ShieldCheck className="size-4" aria-hidden="true" />
-        <AlertTitle>Teacher review surface (minimal, Cycle 1)</AlertTitle>
-        <AlertDescription>
-          The class list is the whole pilot cohort (classes are a Cycle-2+ concept). Human marks are
-          the authoritative grade; Smart Mark results are provisional until the κ agreement gate
-          passes. This surface presents facts only — no recommendations.
-        </AlertDescription>
-      </Alert>
+      <Tabs value={surface} onValueChange={(v) => setSurface(v as "marking" | "graph")}>
+        <TabsList className="grid h-auto w-full max-w-md grid-cols-2">
+          <TabsTrigger value="marking" className="text-xs">
+            Marking review
+          </TabsTrigger>
+          <TabsTrigger value="graph" className="text-xs">
+            Curriculum concept graph
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {surface === "graph" ? (
+        <ConceptGraphView />
+      ) : (
+        <>
+          <Alert>
+          <ShieldCheck className="size-4" aria-hidden="true" />
+          <AlertTitle>Teacher review surface (minimal, Cycle 1)</AlertTitle>
+          <AlertDescription>
+            The class list is the whole pilot cohort (classes are a Cycle-2+ concept). Human marks are
+            the authoritative grade; Smart Mark results are provisional until the κ agreement gate
+            passes. This surface presents facts only — no recommendations.
+          </AlertDescription>
+        </Alert>
 
       {/* ── Class list ─────────────────────────────────────────── */}
       <Card>
@@ -676,6 +696,8 @@ export function TeacherReviewView() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   );
 }

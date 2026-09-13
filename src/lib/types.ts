@@ -363,3 +363,51 @@ export interface NextBestActionsView {
   policy: string;
   actions: NextBestActionView[];
 }
+
+/** ── Teacher concept graph (V15): the seeded 4CH1 curriculum + settled T-C11 layer ── */
+
+/** Result of POST /api/v1/teacher/concept-graph/activate — deterministic, idempotent. */
+export interface ConceptGraphSeedSummary {
+  curriculumVersionId: string;
+  subjectId: string;
+  rootNodeId: string;
+  sections: number;
+  subsections: number;
+  specPoints: number;
+  practicals: number;
+  conceptNodes: number;
+  validatedSemanticEdges: number;
+  nodesCreated: number;
+  nodesReused: number;
+  edgesCreated: number;
+  edgesReused: number;
+  alreadyActive: boolean;
+}
+
+/** A node referenced from a semantic edge (id + display identity + status). */
+export interface ConceptGraphNodeRef {
+  nodeId: string;
+  code: string;
+  title: string;
+  nodeType: string;
+  validationStatus: string;
+}
+
+/** One graph-derived conceptual relationship (prerequisite, remediation, …).
+ *  Distinct from the official curriculum anchor: the relation and provenance
+ *  keep the graph's T-C11 origin visible. */
+export interface ConceptGraphEdgeView {
+  source: ConceptGraphNodeRef;
+  target: ConceptGraphNodeRef;
+  relation: string;
+  validationStatus: string;
+  provenance: string | null;
+  rationale: string | null;
+}
+
+export interface ConceptGraphEdgesView {
+  rootId: string;
+  rootCode: string;
+  policy: string;
+  edges: ConceptGraphEdgeView[];
+}

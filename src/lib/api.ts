@@ -15,6 +15,8 @@ import type {
   AuthResponse,
   AnswerMarkingView,
   AttemptResultView,
+  ConceptGraphEdgesView,
+  ConceptGraphSeedSummary,
   HumanMarkView,
   KappaEvaluationView,
   LearnerKnowledgeGraphView,
@@ -233,4 +235,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(paperId ? { paperId } : {}),
     }),
+
+  conceptGraphActivate: () =>
+    request<ConceptGraphSeedSummary>("/api/v1/teacher/concept-graph/activate", {
+      method: "POST",
+    }),
+
+  conceptGraphEdges: (rootId: string) =>
+    request<ConceptGraphEdgesView>(
+      `/api/v1/teacher/concept-graph/edges?rootId=${encodeURIComponent(rootId)}`,
+    ),
 };
