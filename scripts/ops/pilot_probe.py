@@ -205,10 +205,15 @@ def check_learner() -> None:
     # rooted subject when none serves questions yet.
     if rooted:
         serving = None
-        for s in rooted:
+        first = None  # (status, qs) for rooted[0] — the loop always queries it
+                      # first; the no-serving fallback reuses that result
+                      # instead of re-issuing the request (F-9).
+        for i, s in enumerate(rooted):
             status, qs, err = http("GET",
                                    f"{BACKEND}/api/v1/questions?rootId={s['knowledgeNodeId']}",
                                    headers=auth)
+            if i == 0:
+                first = (status, qs)
             if status == 200 and isinstance(qs, list) and qs:
                 serving = (s, qs)
                 break
@@ -220,8 +225,7 @@ def check_learner() -> None:
                    "")
         else:
             root = rooted[0]["knowledgeNodeId"]
-            status, qs, err = http("GET", f"{BACKEND}/api/v1/questions?rootId={root}",
-                                   headers=auth)
+            status, qs = first
             record("learner-practice", status == 200 and isinstance(qs, list),
                    f"practice list → {status}, "
                    f"{len(qs) if isinstance(qs, list) else qs} questions",
