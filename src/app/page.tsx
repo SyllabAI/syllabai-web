@@ -17,6 +17,7 @@ import type {
   LearnerKnowledgeGraphView,
   LearnerStateView,
   NextBestActionsView,
+  SubjectView,
 } from "@/lib/types";
 import { TeacherReviewView } from "@/components/syllabai/TeacherReviewView";
 import {
@@ -46,6 +47,11 @@ export default function SyllabAiWorkbench() {
   const [graphLoading, setGraphLoading] = useState(false);
   const [rootId, setRootId] = useState<string | null>(null);
   const [subjectName, setSubjectName] = useState<string | null>(null);
+  // Session-56 pilot-readiness: every subject the backend exposes (the teacher
+  // 4CH1 activation adds a second one); the header selector lets the learner
+  // pick which subject's workbench they are in — with a single subject it stays
+  // out of the way, exactly like before.
+  const [subjectsList, setSubjectsList] = useState<SubjectView[]>([]);
   // Tutor transcript lives here (not inside the tab) so it survives tab switches;
   // server-side sessions arrive with the Spec §22 tutor/sessions endpoints.
   const [tutorMessages, setTutorMessages] = useState<TutorChatMessage[]>([]);
@@ -191,6 +197,7 @@ export default function SyllabAiWorkbench() {
     (async () => {
       try {
         const subjects = await api.subjects();
+        setSubjectsList(subjects.filter((s) => s.knowledgeNodeId));
         const withNode = subjects.find((s) => s.knowledgeNodeId);
         if (withNode?.knowledgeNodeId && !cancelled) {
           setRootId(withNode.knowledgeNodeId);
@@ -206,6 +213,22 @@ export default function SyllabAiWorkbench() {
       cancelled = true;
     };
   }, [auth, refreshState, refreshGraph, refreshRecommendations, refreshHistory]);
+
+  // Switching subject switches the whole workbench: graph, recommendations
+  // and practice all re-scope to the selected subject's KG root.
+  const handleSelectSubject = useCallback(
+    (knowledgeNodeId: string) => {
+      if (knowledgeNodeId === rootId) return;
+      const subject = subjectsList.find((s) => s.knowledgeNodeId === knowledgeNodeId);
+      setRootId(knowledgeNodeId);
+      setSubjectName(subject?.name ?? null);
+      setPracticeTopic(null);
+      refreshGraph(knowledgeNodeId);
+      refreshRecommendations(knowledgeNodeId);
+      refreshState();
+    },
+    [rootId, subjectsList, refreshGraph, refreshRecommendations, refreshState],
+  );
 
   // After an attempt all read models change server-side (BKT + decay view +
   // the evidence the next-best actions rank from + the history record itself).
@@ -264,6 +287,9 @@ export default function SyllabAiWorkbench() {
     <div className="flex min-h-screen flex-col bg-muted/40">
       <AppHeader
         user={auth.user}
+        subjects={subjectsList}
+        selectedRootId={rootId}
+        onSelectSubject={handleSelectSubject}
         onLogout={() => {
           clearSession();
           resetSessionState();
@@ -325,6 +351,8 @@ export default function SyllabAiWorkbench() {
               onAttemptSubmitted={handleAttemptSubmitted}
               topicNodeId={practiceTopic?.nodeId ?? null}
               topicTitle={practiceTopic?.title ?? null}
+              rootId={rootId}
+              subjectName={subjectName}
               onClearTopic={() => setPracticeTopic(null)}
               onAskTutorAbout={onAskTutorAbout}
             />

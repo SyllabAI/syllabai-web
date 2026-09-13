@@ -3,21 +3,28 @@
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GraduationCap, LogOut } from "lucide-react";
-import type { UserView } from "@/lib/types";
+import type { SubjectView, UserView } from "@/lib/types";
 
 interface AppHeaderProps {
   user: UserView;
+  /** Subjects with a KG root — the selector appears only when more than one exists. */
+  subjects?: SubjectView[];
+  selectedRootId?: string | null;
+  onSelectSubject?: (knowledgeNodeId: string) => void;
   onLogout: () => void;
 }
 
-export function AppHeader({ user, onLogout }: AppHeaderProps) {
+export function AppHeader({ user, subjects, selectedRootId, onSelectSubject, onLogout }: AppHeaderProps) {
   const initials = user.displayName
     .split(/\s+/)
     .map((part) => part[0])
     .slice(0, 2)
     .join("")
     .toUpperCase();
+
+  const selectable = (subjects ?? []).filter((s) => s.knowledgeNodeId);
 
   return (
     <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -33,6 +40,24 @@ export function AppHeader({ user, onLogout }: AppHeaderProps) {
         </div>
 
         <div className="flex items-center gap-3">
+          {selectable.length > 1 && onSelectSubject && selectedRootId && (
+            <Select value={selectedRootId} onValueChange={onSelectSubject}>
+              <SelectTrigger
+                size="sm"
+                className="w-[190px] gap-1 text-xs"
+                aria-label="Subject"
+              >
+                <SelectValue placeholder="Subject" />
+              </SelectTrigger>
+              <SelectContent>
+                {selectable.map((s) => (
+                  <SelectItem key={s.knowledgeNodeId ?? s.id} value={s.knowledgeNodeId ?? s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <div className="hidden items-center gap-2 sm:flex">
             <Avatar className="size-8">
               <AvatarFallback className="text-xs">{initials || "?"}</AvatarFallback>

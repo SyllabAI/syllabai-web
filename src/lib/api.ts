@@ -156,10 +156,16 @@ export const api = {
   prerequisites: (nodeId: string) =>
     request<PrerequisiteView[]>(`/api/v1/knowledge/nodes/${nodeId}/prerequisites`),
 
-  questions: (topicNodeId?: string) =>
-    request<StudentQuestionView[]>(
-      topicNodeId ? `/api/v1/questions?topicNodeId=${topicNodeId}` : "/api/v1/questions",
-    ),
+  questions: (topicNodeId?: string, rootId?: string) => {
+    // subject-scoped practice (pilot-readiness session-56): rootId narrows the
+    // list to the subject's subtree so one subject's questions never surface
+    // under another subject's workbench
+    const params = new URLSearchParams();
+    if (topicNodeId) params.set("topicNodeId", topicNodeId);
+    else if (rootId) params.set("rootId", rootId);
+    const qs = params.toString();
+    return request<StudentQuestionView[]>(`/api/v1/questions${qs ? `?${qs}` : ""}`);
+  },
 
   submitAttempt: (body: {
     questionId: string;

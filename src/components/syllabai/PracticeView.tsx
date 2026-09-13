@@ -22,6 +22,8 @@ export function PracticeView({
   onAttemptSubmitted,
   topicNodeId = null,
   topicTitle = null,
+  rootId = null,
+  subjectName = null,
   onClearTopic,
   onAskTutorAbout,
 }: {
@@ -29,6 +31,10 @@ export function PracticeView({
   /** Set when the dashboard/mastery map deep-links into practice for a topic. */
   topicNodeId?: string | null;
   topicTitle?: string | null;
+  /** The selected subject's KG root — scopes the unfiltered practice list (session-56). */
+  rootId?: string | null;
+  /** The selected subject's display name, for the honest empty state. */
+  subjectName?: string | null;
   onClearTopic?: () => void;
   /** Weakness→tutor loop leg: pre-fills an editable tutor question (never auto-sends). */
   onAskTutorAbout?: (draft: string) => void;
@@ -62,7 +68,10 @@ export function PracticeView({
     startedAt.current = Date.now();
     (async () => {
       try {
-        const list = await api.questions(topicNodeId ?? undefined);
+        const list = await api.questions(
+          topicNodeId ?? undefined,
+          topicNodeId ? undefined : (rootId ?? undefined),
+        );
         if (!cancelled) setQuestions(list);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load questions");
@@ -71,7 +80,7 @@ export function PracticeView({
     return () => {
       cancelled = true;
     };
-  }, [topicNodeId]);
+  }, [topicNodeId, rootId]);
 
   const question = questions?.[index] ?? null;
   const isStructured = question?.type === "STRUCTURED";
@@ -179,8 +188,12 @@ export function PracticeView({
     }
     return (
       <Alert>
-        <AlertTitle>No questions seeded</AlertTitle>
-        <AlertDescription>The question bank is empty — run the Flyway seed migrations.</AlertDescription>
+        <AlertTitle>No validated questions in this subject yet</AlertTitle>
+        <AlertDescription>
+          {subjectName
+            ? `No validated questions are linked to ${subjectName} yet — practice appears once validated content covers it.`
+            : "The question bank is empty — run the Flyway seed migrations."}
+        </AlertDescription>
       </Alert>
     );
   }
