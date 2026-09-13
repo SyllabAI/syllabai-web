@@ -67,7 +67,24 @@ export function currentUser(): { id: string; email: string; displayName: string;
   const raw = window.localStorage.getItem(USER_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
+    // Shape-check, don't just parse: a truncated or old-schema payload that
+    // still parses (a string, an object without roles) would otherwise flow
+    // into auth.user.roles.some(...) and white-screen the app on every visit
+    // until storage is cleared manually. A bad payload restores as no session.
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof (parsed as { id?: unknown }).id !== "string" ||
+      typeof (parsed as { email?: unknown }).email !== "string" ||
+      typeof (parsed as { displayName?: unknown }).displayName !== "string" ||
+      !Array.isArray((parsed as { roles?: unknown }).roles) ||
+      !(parsed as { roles: unknown[] }).roles.every((r) => typeof r === "string")
+    ) {
+      clearSession();
+      return null;
+    }
+    return parsed as { id: string; email: string; displayName: string; roles: string[] };
   } catch {
     return null;
   }

@@ -53,6 +53,13 @@ export function PracticeView({
     setStructuredResult(null);
     setChosen(null);
     setPartAnswers({});
+    setError(null);
+    // no stale question list from the previous topic under the new header
+    setQuestions(null);
+    // response timing is research data (§16): anchor it to the topic load,
+    // not to app mount — a deep-linked topic hours into a session otherwise
+    // records minutes of dead time in the first answer's responseTimeMs
+    startedAt.current = Date.now();
     (async () => {
       try {
         const list = await api.questions(topicNodeId ?? undefined);
@@ -76,6 +83,7 @@ export function PracticeView({
     setPartAnswers({});
     setSelfDoubt(false);
     setConfidence(3);
+    setError(null);
     startedAt.current = Date.now();
     setIndex((i) => (questions ? (i + 1) % questions.length : 0));
   }, [questions]);
