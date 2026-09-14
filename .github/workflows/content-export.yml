@@ -1,0 +1,67 @@
+name: Content Export
+
+# Exports REAL canonical validated content (one fully-VALIDATED paper with a
+# complete marking contract + provenance, one SUGGESTED scheme-less paper as
+# negative-case material) for the Content Package v0.1 real-corpus proof in
+# syllabai-parser. Uses the PILOT_TEACHER_* secrets (never printed); the
+# export JSON is uploaded as a workflow artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "optional run note (recorded in the artifact summary)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: content-export
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Export canonical content-package inputs from production
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          EXPORT_PATH: content-package-export.json
+        run: python3 scripts/ops/export_content_package_inputs.py
+
+      - name: Summarize
+        if: always()
+        run: |
+          if [ -f content-package-export.json ]; then
+            python3 - <<'PY'
+          import json
+          d = json.load(open("content-package-export.json"))
+          pos = d["positiveCase"]["papersListItem"]
+          rev = d["positiveCase"]["review"]
+          prov = d["positiveCase"].get("provenance") or {}
+          neg = d.get("negativeCase", {})
+          print(json.dumps({
+            "positive": {"paperId": pos["id"], "title": pos.get("title"),
+                         "code": pos.get("paperCode"),
+                         "versions": len(rev.get("versions", [])),
+                         "qpChecksum": prov.get("qpChecksum"),
+                         "msChecksum": prov.get("msChecksum")},
+            "negative": {"paperId": (neg.get("queueSummary") or {}).get("id"),
+                         "schemeless": len(neg.get("schemelessVersionIds", []))},
+          }, indent=2))
+          PY
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: content-package-export
+          path: content-package-export.json
+          if-no-files-found: error
+          retention-days: 90
