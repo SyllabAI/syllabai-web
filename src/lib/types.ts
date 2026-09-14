@@ -127,6 +127,17 @@ export interface LearnerStateView {
   skillStates: SkillStateView[];
   misconceptionStates: MisconceptionStateView[];
   pendingReviews: ReviewView[];
+  /** V21 (P7): topics the learner recently asked the Tutor about (last 30 days). */
+  tutorEngagements?: TutorEngagementView[];
+}
+
+export interface TutorEngagementView {
+  nodeId: string;
+  /** Human KG title (backend-resolved); null → callers fall back to the graph/code. */
+  nodeTitle?: string | null;
+  asks: number;
+  lastAskedAt: string;
+  refusedAny: boolean;
 }
 
 export interface SubjectView {

@@ -21,6 +21,7 @@ import {
   CalendarClock,
   Compass,
   Gauge,
+  MessageCircleQuestion,
   Network,
   Target,
   TriangleAlert,
@@ -127,6 +128,18 @@ export function DashboardView({
         ...m,
         title: titles.get(m.misconceptionNodeId) ?? m.misconceptionNodeId.slice(0, 8),
       }));
+  }, [graph, state]);
+
+  // V21 (P7): topics the learner recently asked the Tutor about — the dashboard's
+  // "continue what you were curious about" hook. Titles resolve against the
+  // personalized graph first (richer), falling back to the backend-resolved title.
+  const recentAsks = useMemo(() => {
+    if (!state?.tutorEngagements?.length) return [];
+    const titles = new Map((graph?.nodes ?? []).map((n) => [n.id, n.title]));
+    return state.tutorEngagements.map((e) => ({
+      ...e,
+      title: titles.get(e.nodeId) ?? e.nodeTitle ?? e.nodeId.slice(0, 8),
+    }));
   }, [graph, state]);
 
   const activity = useMemo(() => {
@@ -350,6 +363,52 @@ export function DashboardView({
                   </div>
                 </div>
               ))
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Recently asked — V21 tutor engagement: continue what you were curious about */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MessageCircleQuestion className="size-4 text-primary" aria-hidden="true" />
+              Recently asked
+            </CardTitle>
+            <CardDescription>
+              Topics from your Tutor questions in the last 30 days — practising them is
+              the natural next step.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {recentAsks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nothing yet — ask the Tutor a question and the topics you touch will
+                show up here.
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {recentAsks.slice(0, 6).map((e) => {
+                  const node = graph.nodes.find((n) => n.id === e.nodeId);
+                  return (
+                    <li
+                      key={e.nodeId}
+                      className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm">{e.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {e.asks} question{e.asks === 1 ? "" : "s"} · last{" "}
+                          {formatRelative(e.lastAskedAt)}
+                          {e.refusedAny ? " · some unanswered (no grounded material)" : ""}
+                        </p>
+                      </div>
+                      {node && (
+                        <PractiseButton node={node} onPracticeTopic={onPracticeTopic} />
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </CardContent>
         </Card>
