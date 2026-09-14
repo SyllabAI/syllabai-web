@@ -51,8 +51,8 @@ jobs:
             "positive": {"paperId": pos["id"], "title": pos.get("title"),
                          "code": pos.get("paperCode"),
                          "versions": len(rev.get("versions", [])),
-                         "qpChecksum": prov.get("qpChecksum"),
-                         "msChecksum": prov.get("msChecksum")},
+                         "qpChecksum": (prov.get("questionPaper") or {}).get("checksum"),
+                         "msChecksum": (prov.get("markScheme") or {}).get("checksum")},
             "negative": {"paperId": (neg.get("queueSummary") or {}).get("id"),
                          "schemeless": len(neg.get("schemelessVersionIds", []))},
           }, indent=2))

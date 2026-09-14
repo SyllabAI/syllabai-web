@@ -94,10 +94,13 @@ def main() -> int:
         return 1
 
     s, provenance = http("GET", f"/api/v1/teacher/content/exam-papers/{pid}/provenance", token=tok)
-    prov_ok = (s == 200 and provenance.get("qpChecksum") and provenance.get("msChecksum"))
+    prov_ok = bool(
+        s == 200 and isinstance(provenance, dict)
+        and (provenance.get("questionPaper") or {}).get("checksum")
+        and (provenance.get("markScheme") or {}).get("checksum"))
     print(f"{'PASS' if prov_ok else 'FAIL'} provenance status={s} "
-          f"qp_doc={'set' if prov_ok and provenance.get('qpDocumentId') else 'unset'} "
-          f"ms_doc={'set' if prov_ok and provenance.get('msDocumentId') else 'unset'}")
+          f"qp={((provenance or {}).get('questionPaper') or {}).get('checksum', 'unset')[:16]} "
+          f"ms={((provenance or {}).get('markScheme') or {}).get('checksum', 'unset')[:16]}")
 
     topic_rows = {}
     for v in versions:
@@ -112,13 +115,17 @@ def main() -> int:
                         for r in (rows or [])))
     print(f"topic rows questions={len(topic_rows)} withAnchor={anchors} withCurriculumPrimary={mapped}")
 
+    if not prov_ok:
+        print("FAIL provenance unavailable — refusing to export an unprovenanced positive case")
+        return 1
+
     export = {
         "exportSchema": "syllabai-content-package-inputs/1.0",
         "capturedAt": positive.get("createdAt"),
         "positiveCase": {
             "papersListItem": positive,
             "review": review,
-            "provenance": provenance if prov_ok else None,
+            "provenance": provenance,
             "topicRows": topic_rows,
         },
         "notes": {
