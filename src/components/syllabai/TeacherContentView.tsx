@@ -59,6 +59,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { api, ApiError } from "@/lib/api";
+import type { TeacherAuditRowView } from "@/lib/types";
 import type {
   NodeView,
   SubjectView,
@@ -235,6 +236,70 @@ function FindingsPanel({ paperId }: { paperId: string }) {
                 <li key={i} className="text-xs text-muted-foreground">
                   <span className="font-medium">{f.severity ?? f.source ?? "finding"}:</span>{" "}
                   {f.detail ?? JSON.stringify(f)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** V22: durable audit trail for this paper and everything under it (who/what/when) */
+function AuditPanel({ paperId }: { paperId: string }) {
+  const [rows, setRows] = useState<TeacherAuditRowView[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open || rows != null || error) return;
+    api
+      .paperAudit(paperId)
+      .then((r) => setRows(r))
+      .catch((e) => setError(e instanceof ApiError ? e.message : "audit unavailable"));
+  }, [open, paperId, rows, error]);
+
+  const fmtWhen = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString();
+    } catch {
+      return iso;
+    }
+  };
+
+  return (
+    <div className="rounded-md border bg-muted/20">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 p-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground"
+      >
+        {open ? (
+          <ChevronDown className="size-4" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="size-4" aria-hidden="true" />
+        )}
+        Decision audit trail (V22)
+      </button>
+      {open && (
+        <div className="border-t p-2.5">
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          {rows == null && !error && <Skeleton className="h-8 w-full" />}
+          {rows != null && rows.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No audit rows yet — nothing has been decided on this paper since the V22 trail
+              went live. Earlier decisions live in the server logs of that time.
+            </p>
+          )}
+          {rows != null && rows.length > 0 && (
+            <ul className="space-y-1">
+              {rows.map((r, i) => (
+                <li key={i} className="text-xs text-muted-foreground">
+                  <span className="font-medium">{r.action}</span> {r.targetType.replace("_", " ")}{" "}
+                  {r.fromState ? `${r.fromState} → ${r.toState}` : r.detail ? `— ${r.detail}` : ""}
+                  {r.fromState ? (r.detail ? ` — ${r.detail}` : "") : ""}{" "}
+                  <span className="font-mono">[{r.actor}]</span> {fmtWhen(r.occurredAt)}
                 </li>
               ))}
             </ul>
@@ -950,6 +1015,7 @@ export function TeacherContentView() {
                       </div>
 
                       <FindingsPanel paperId={p.id} />
+                      <AuditPanel paperId={p.id} />
 
                       {review.versions.length === 0 && (
                         <p className="text-sm text-muted-foreground">

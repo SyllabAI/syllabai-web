@@ -12,6 +12,7 @@
  */
 import type {
   AttemptHistoryView,
+  TeacherAuditRowView,
   AuthResponse,
   AnswerMarkingView,
   AttemptResultView,
@@ -371,6 +372,12 @@ export const api = {
     request<TeacherValidateAllResult>(
       `/api/v1/teacher/content/exam-papers/${paperId}/validate-all${force ? "?force=true" : ""}`,
       { method: "POST" },
+    ),
+
+  // V22: durable audit history for a paper and everything under it
+  paperAudit: (paperId: string) =>
+    request<TeacherAuditRowView[]>(
+      `/api/v1/teacher/content/exam-papers/${paperId}/audit`,
     ),
 
   paperFindings: (paperId: string) =>

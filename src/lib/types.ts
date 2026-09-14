@@ -678,6 +678,18 @@ export interface ExamPaperDetailView {
 
 // ── P9 Test Builder (mirrors core TestBuilderService.TestPreviewView) ──
 
+/** V22: one durable audit row (who decided what, when, from/to states) */
+export interface TeacherAuditRowView {
+  occurredAt: string;
+  actor: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  fromState: string | null;
+  toState: string | null;
+  detail: string;
+}
+
 export interface TestPreviewView {
   rootId: string;
   questionCount: number;
