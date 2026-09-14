@@ -3,14 +3,28 @@
 /**
  * Teacher content-validation surface (Master Spec §7): the queue of SUGGESTED
  * past papers, the full review payload of each paper (content + answer key +
- * mark-scheme state), and the validate/reject workflow that decides whether
+ * mark-scheme state), and the validate/reject/flag workflow that decides whether
  * imported assessment content ever becomes student-servable.
+ *
+ * V20 high-throughput review:
+ * - the queue is the ENRICHED read model (review-queue-v2): strongest
+ *   candidates first (bridge reconciliation OK, higher mean extraction
+ *   confidence, fewer parser findings), with per-paper progress so a reviewer
+ *   triages 90 papers without opening each one;
+ * - batch "Validate all" flips every SUGGESTED version + scheme + the paper in
+ *   one action — fail-closed against REVIEW_REQUIRED imports and REJECTED /
+ *   FLAGGED versions (the backend 409s; the UI surfaces the reason verbatim
+ *   and never bypasses it silently);
+ * - FLAGGED state on papers, versions and schemes: "needs a second look".
+ *   Flagging a VALIDATED item stops it serving immediately; unflag returns it
+ *   to SUGGESTED — re-validation required, never straight back to VALIDATED;
+ * - a plain-language lifecycle legend: a teacher must understand WHY content
+ *   is in its state without developer knowledge.
  *
  * Safety posture carried through the UI:
  * - nothing here bypasses the backend gates: /api/v1/teacher/** enforces the
- *   role server-side, a 409 from paper validation is shown verbatim ("validate
- *   versions first"), and REJECTED/VALIDATED states are irreversible flips the
- *   backend owns — the buttons only trigger them;
+ *   role server-side, 409s are shown verbatim, and REJECTED/VALIDATED/FLAGGED
+ *   are flips the backend owns — the buttons only trigger them;
  * - the answer key (correct option, misconception feed, mark points) is shown
  *   because a reviewer must see WHAT they validate — this view is the only
  *   place it appears; learner surfaces stay behind the serving boundary.
@@ -38,16 +52,30 @@ import {
 import { api, ApiError } from "@/lib/api";
 import type {
   SubjectView,
+  TeacherEnrichedPaperSummary,
+  TeacherFindingView,
   TeacherPaperReviewView,
-  TeacherReviewQueueView,
   TeacherVersionReview,
 } from "@/lib/types";
-import { Check, ChevronDown, ChevronRight, RefreshCw, ShieldCheck, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Flag,
+  FlagOff,
+  Info,
+  ListChecks,
+  RefreshCw,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 
 const stateBadgeClass: Record<string, string> = {
   SUGGESTED: "border-amber-300 bg-amber-50 text-amber-800",
   VALIDATED: "border-emerald-300 bg-emerald-50 text-emerald-800",
   REJECTED: "border-rose-300 bg-rose-50 text-rose-800",
+  FLAGGED: "border-orange-300 bg-orange-50 text-orange-800",
 };
 
 function StateBadge({ state }: { state: string | null }) {
@@ -59,6 +87,150 @@ function StateBadge({ state }: { state: string | null }) {
   );
 }
 
+/** plain-language lifecycle explanation — the "WHY is it in this state" legend */
+const LIFECYCLE_LEGEND: { state: string; explanation: string }[] = [
+  {
+    state: "SUGGESTED",
+    explanation:
+      "Imported by the pipeline, not yet reviewed. Students never see it until a teacher validates it.",
+  },
+  {
+    state: "VALIDATED",
+    explanation:
+      "A teacher approved it. For question versions this is the gate that makes content student-servable.",
+  },
+  {
+    state: "FLAGGED",
+    explanation:
+      "Marked for a second look (by a teacher). Serving stops immediately; unflagging returns it to SUGGESTED so it must be re-validated.",
+  },
+  {
+    state: "REJECTED",
+    explanation: "Removed by a teacher. It will never serve to students.",
+  },
+];
+
+function LifecycleLegend() {
+  return (
+    <Alert>
+      <Info className="size-4" aria-hidden="true" />
+      <AlertTitle>Content lifecycle — why an item is in its current state</AlertTitle>
+      <AlertDescription>
+        <ul className="mt-1 space-y-1">
+          {LIFECYCLE_LEGEND.map((l) => (
+            <li key={l.state} className="flex items-start gap-2">
+              <StateBadge state={l.state} />
+              <span>{l.explanation}</span>
+            </li>
+          ))}
+        </ul>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+function confidenceBadgeClass(c: number | null): string | null {
+  if (c == null) return null;
+  if (c >= 0.8) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (c >= 0.5) return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-rose-200 bg-rose-50 text-rose-700";
+}
+
+function QualityBadges({ paper }: { paper: TeacherEnrichedPaperSummary }) {
+  const recon =
+    paper.reconciliationStatus == null ? null : paper.reconciliationStatus === "OK";
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {recon != null && (
+        <Badge
+          variant="outline"
+          className={
+            recon
+              ? "border-sky-200 bg-sky-50 text-sky-700"
+              : "border-rose-200 bg-rose-50 text-rose-700"
+          }
+        >
+          {recon ? "marks reconciled" : "needs reconciliation review"}
+        </Badge>
+      )}
+      {paper.findingCount > 0 && (
+        <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-700">
+          <AlertTriangle className="mr-1 size-3" aria-hidden="true" />
+          {paper.findingCount} finding{paper.findingCount === 1 ? "" : "s"}
+        </Badge>
+      )}
+      {paper.avgExtractionConfidence != null && (
+        <Badge variant="outline" className={confidenceBadgeClass(paper.avgExtractionConfidence) ?? ""}>
+          extraction {(paper.avgExtractionConfidence * 100).toFixed(0)}%
+        </Badge>
+      )}
+      {paper.versionCount > 0 && (
+        <Badge variant="outline" className="border-muted bg-muted/50 text-muted-foreground">
+          {paper.validatedVersions}/{paper.versionCount} versions validated
+          {paper.flaggedVersions > 0 ? ` · ${paper.flaggedVersions} flagged` : ""}
+          {paper.rejectedVersions > 0 ? ` · ${paper.rejectedVersions} rejected` : ""}
+        </Badge>
+      )}
+    </div>
+  );
+}
+
+function FindingsPanel({ paperId }: { paperId: string }) {
+  const [findings, setFindings] = useState<TeacherFindingView[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open || findings != null || error) return;
+    api
+      .paperFindings(paperId)
+      .then((f) => setFindings(f))
+      .catch((e) => {
+        // 404 = no bridge record (e.g. teacher-authored) — honest empty, not an error
+        if (e instanceof ApiError && e.status === 404) setFindings([]);
+        else setError(e instanceof ApiError ? e.message : "findings unavailable");
+      });
+  }, [open, paperId, findings, error]);
+
+  return (
+    <div className="rounded-md border bg-muted/20">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 p-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground"
+      >
+        {open ? (
+          <ChevronDown className="size-4" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="size-4" aria-hidden="true" />
+        )}
+        Import findings (parser + marks reconciliation)
+      </button>
+      {open && (
+        <div className="border-t p-2.5">
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          {findings == null && !error && <Skeleton className="h-8 w-full" />}
+          {findings != null && findings.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No findings recorded — the import reconciled cleanly.
+            </p>
+          )}
+          {findings != null && findings.length > 0 && (
+            <ul className="space-y-1">
+              {findings.map((f, i) => (
+                <li key={i} className="text-xs text-muted-foreground">
+                  <span className="font-medium">{f.severity ?? f.source ?? "finding"}:</span>{" "}
+                  {f.detail ?? JSON.stringify(f)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VersionReviewCard({
   version,
   busy,
@@ -66,7 +238,18 @@ function VersionReviewCard({
 }: {
   version: TeacherVersionReview;
   busy: string | null;
-  onAction: (action: "version-validate" | "version-reject" | "scheme-validate" | "scheme-reject", v: TeacherVersionReview) => void;
+  onAction: (
+    action:
+      | "version-validate"
+      | "version-reject"
+      | "version-flag"
+      | "version-unflag"
+      | "scheme-validate"
+      | "scheme-reject"
+      | "scheme-flag"
+      | "scheme-unflag",
+    v: TeacherVersionReview,
+  ) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -81,9 +264,19 @@ function VersionReviewCard({
             {version.externalRef ? `${version.externalRef} — ` : ""}
             {version.stem}
           </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {version.type.toLowerCase()} · {version.marks} mark{version.marks === 1 ? "" : "s"}
-            {version.commandWord ? ` · ${version.commandWord.toLowerCase()}` : ""} · v{version.version}
+          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <span>
+              {version.type.toLowerCase()} · {version.marks} mark{version.marks === 1 ? "" : "s"}
+              {version.commandWord ? ` · ${version.commandWord.toLowerCase()}` : ""} · v{version.version}
+            </span>
+            {version.extractionConfidence != null && (
+              <Badge
+                variant="outline"
+                className={confidenceBadgeClass(version.extractionConfidence) ?? ""}
+              >
+                extraction {(version.extractionConfidence * 100).toFixed(0)}%
+              </Badge>
+            )}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -176,48 +369,102 @@ function VersionReviewCard({
           )}
 
           <div className="flex flex-wrap gap-2 border-t pt-3">
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-emerald-800"
-              disabled={busy !== null}
-              onClick={() => onAction("version-validate", version)}
-            >
-              <Check className="size-4" aria-hidden="true" />
-              {busy === "version-validate" ? "Validating…" : "Validate version"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-rose-800"
-              disabled={busy !== null}
-              onClick={() => onAction("version-reject", version)}
-            >
-              <X className="size-4" aria-hidden="true" />
-              {busy === "version-reject" ? "Rejecting…" : "Reject version"}
-            </Button>
+            {version.validationState !== "VALIDATED" && version.validationState !== "REJECTED" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-emerald-800"
+                disabled={busy !== null}
+                onClick={() => onAction("version-validate", version)}
+              >
+                <Check className="size-4" aria-hidden="true" />
+                {busy === "version-validate" ? "Validating…" : "Validate version"}
+              </Button>
+            )}
+            {version.validationState !== "REJECTED" && version.validationState !== "FLAGGED" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-orange-800"
+                disabled={busy !== null}
+                onClick={() => onAction("version-flag", version)}
+              >
+                <Flag className="size-4" aria-hidden="true" />
+                Flag
+              </Button>
+            )}
+            {version.validationState === "FLAGGED" && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy !== null}
+                onClick={() => onAction("version-unflag", version)}
+              >
+                <FlagOff className="size-4" aria-hidden="true" />
+                {busy === "version-unflag" ? "Unflagging…" : "Unflag (back to suggested)"}
+              </Button>
+            )}
+            {version.validationState !== "REJECTED" && version.validationState !== "VALIDATED" && version.validationState !== "FLAGGED" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-rose-800"
+                disabled={busy !== null}
+                onClick={() => onAction("version-reject", version)}
+              >
+                <X className="size-4" aria-hidden="true" />
+                Reject version
+              </Button>
+            )}
             {version.schemeId && (
               <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-emerald-800"
-                  disabled={busy !== null}
-                  onClick={() => onAction("scheme-validate", version)}
-                >
-                  <Check className="size-4" aria-hidden="true" />
-                  {busy === "scheme-validate" ? "Validating…" : "Validate scheme"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-rose-800"
-                  disabled={busy !== null}
-                  onClick={() => onAction("scheme-reject", version)}
-                >
-                  <X className="size-4" aria-hidden="true" />
-                  {busy === "scheme-reject" ? "Rejecting…" : "Reject scheme"}
-                </Button>
+                {version.schemeState !== "VALIDATED" && version.schemeState !== "REJECTED" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-emerald-800"
+                    disabled={busy !== null}
+                    onClick={() => onAction("scheme-validate", version)}
+                  >
+                    <Check className="size-4" aria-hidden="true" />
+                    Validate scheme
+                  </Button>
+                )}
+                {version.schemeState !== "REJECTED" && version.schemeState !== "FLAGGED" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-orange-800"
+                    disabled={busy !== null}
+                    onClick={() => onAction("scheme-flag", version)}
+                  >
+                    <Flag className="size-4" aria-hidden="true" />
+                    Flag scheme
+                  </Button>
+                )}
+                {version.schemeState === "FLAGGED" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy !== null}
+                    onClick={() => onAction("scheme-unflag", version)}
+                  >
+                    <FlagOff className="size-4" aria-hidden="true" />
+                    Unflag scheme
+                  </Button>
+                )}
+                {version.schemeState !== "REJECTED" && version.schemeState !== "VALIDATED" && version.schemeState !== "FLAGGED" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-rose-800"
+                    disabled={busy !== null}
+                    onClick={() => onAction("scheme-reject", version)}
+                  >
+                    <X className="size-4" aria-hidden="true" />
+                    Reject scheme
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -228,7 +475,7 @@ function VersionReviewCard({
 }
 
 export function TeacherContentView() {
-  const [queue, setQueue] = useState<TeacherReviewQueueView | null>(null);
+  const [queue, setQueue] = useState<TeacherEnrichedPaperSummary[] | null>(null);
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueError, setQueueError] = useState<string | null>(null);
 
@@ -242,12 +489,15 @@ export function TeacherContentView() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // the batch 409 for REVIEW_REQUIRED imports offers an explicit force retry
+  const [forceOffer, setForceOffer] = useState<string | null>(null);
 
   const loadQueue = useCallback(async () => {
     setQueueLoading(true);
     setQueueError(null);
     try {
-      setQueue(await api.contentReviewQueue());
+      const view = await api.contentReviewQueueV2();
+      setQueue(view.papers);
     } catch (err) {
       setQueueError(err instanceof ApiError ? err.message : "review queue unavailable");
     } finally {
@@ -269,11 +519,13 @@ export function TeacherContentView() {
     if (openPaperId === paperId) {
       setOpenPaperId(null);
       setReview(null);
+      setForceOffer(null);
       return;
     }
     setOpenPaperId(paperId);
     setReviewLoading(true);
     setReviewError(null);
+    setForceOffer(null);
     try {
       setReview(await api.paperReview(paperId));
     } catch (err) {
@@ -285,12 +537,28 @@ export function TeacherContentView() {
 
   const act = useCallback(
     async (
-      action: "version-validate" | "version-reject" | "scheme-validate" | "scheme-reject" | "paper-validate" | "paper-reject" | "paper-place",
+      action:
+        | "version-validate"
+        | "version-reject"
+        | "version-flag"
+        | "version-unflag"
+        | "scheme-validate"
+        | "scheme-reject"
+        | "scheme-flag"
+        | "scheme-unflag"
+        | "paper-validate"
+        | "paper-reject"
+        | "paper-place"
+        | "paper-flag"
+        | "paper-unflag"
+        | "validate-all",
       version: TeacherVersionReview | null,
+      force = false,
     ) => {
       if (!review) return;
       setBusy(action);
       setNotice(null);
+      setForceOffer(null);
       try {
         if (version) {
           if (action === "version-validate") {
@@ -299,19 +567,44 @@ export function TeacherContentView() {
           } else if (action === "version-reject") {
             const r = await api.rejectQuestionVersion(version.versionId);
             setNotice(`Question version rejected (${r.version}).`);
+          } else if (action === "version-flag") {
+            const r = await api.flagQuestionVersion(version.versionId);
+            setNotice(`Question version flagged (${r.validationState.toLowerCase()}) — it no longer serves.`);
+          } else if (action === "version-unflag") {
+            const r = await api.unflagQuestionVersion(version.versionId);
+            setNotice(`Question version unflagged (${r.validationState.toLowerCase()}) — re-validation required.`);
           } else if (action === "scheme-validate" && version.schemeId) {
             const r = await api.validateMarkScheme(version.schemeId);
             setNotice(`Mark scheme validated (${r.pointCount} points).`);
           } else if (action === "scheme-reject" && version.schemeId) {
             const r = await api.rejectMarkScheme(version.schemeId);
             setNotice("Mark scheme rejected.");
+          } else if (action === "scheme-flag" && version.schemeId) {
+            const r = await api.flagMarkScheme(version.schemeId);
+            setNotice(`Mark scheme flagged (${r.validationState.toLowerCase()}).`);
+          } else if (action === "scheme-unflag" && version.schemeId) {
+            const r = await api.unflagMarkScheme(version.schemeId);
+            setNotice(`Mark scheme unflagged (${r.validationState.toLowerCase()}).`);
           }
+        } else if (action === "validate-all") {
+          const r = await api.validateAllForPaper(review.paper.id, force);
+          setNotice(
+            `Paper validated — ${r.versionsValidated} version(s) and ${r.schemesValidated} scheme(s) flipped; content is now student-servable.`,
+          );
         } else if (action === "paper-validate") {
           const r = await api.validatePaper(review.paper.id);
           setNotice(`Paper validated — content is now student-servable (${r.validationState.toLowerCase()}).`);
         } else if (action === "paper-reject") {
           await api.rejectPaper(review.paper.id);
           setNotice("Paper rejected — content will never serve to students.");
+        } else if (action === "paper-flag") {
+          const r = await api.flagPaper(review.paper.id);
+          setNotice(
+            `Paper flagged (${r.validationState.toLowerCase()}) — serving of everything under it is blocked.`,
+          );
+        } else if (action === "paper-unflag") {
+          const r = await api.unflagPaper(review.paper.id);
+          setNotice(`Paper unflagged (${r.validationState.toLowerCase()}) — re-validation required.`);
         } else if (action === "paper-place") {
           if (!placeSubjectId) return;
           const target = subjects.find((s) => s.id === placeSubjectId);
@@ -324,10 +617,21 @@ export function TeacherContentView() {
         // refresh both layers: the paper view and the queue counts/states
         const fresh = await api.paperReview(review.paper.id);
         setReview(fresh);
-        setQueue(await api.contentReviewQueue());
+        const freshQueue = await api.contentReviewQueueV2();
+        setQueue(freshQueue.papers);
       } catch (err) {
-        // 409s are the workflow's own guardrails — surface them verbatim
-        setNotice(err instanceof ApiError ? err.message : "action failed");
+        // 409s are the workflow's own guardrails — surface them verbatim; the
+        // REVIEW_REQUIRED batch guard additionally offers the explicit force retry
+        const message = err instanceof ApiError ? err.message : "action failed";
+        setNotice(message);
+        if (
+          action === "validate-all" &&
+          err instanceof ApiError &&
+          err.status === 409 &&
+          message.includes("REVIEW_REQUIRED")
+        ) {
+          setForceOffer(review.paper.id);
+        }
       } finally {
         setBusy(null);
       }
@@ -355,14 +659,21 @@ export function TeacherContentView() {
     );
   }
 
-  const papers = queue?.papers ?? [];
+  const papers = queue ?? [];
   const allVersionsValidated =
     review != null &&
     review.versions.length > 0 &&
     review.versions.every((v) => v.validationState === "VALIDATED");
+  const hasBlockedVersions =
+    review != null &&
+    review.versions.some(
+      (v) => v.validationState === "REJECTED" || v.validationState === "FLAGGED",
+    );
 
   return (
     <div className="space-y-4">
+      <LifecycleLegend />
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center justify-between gap-2 text-base">
@@ -373,17 +684,10 @@ export function TeacherContentView() {
             </Button>
           </CardTitle>
           <CardDescription>
-            Imported assessment content stays SUGGESTED — invisible to students — until each
-            question version and its mark scheme are validated here. Validating the paper flips
-            it student-servable; rejecting removes it permanently.
-            {queue && (
-              <span className="mt-1 block">
-                {papers.length} paper{papers.length === 1 ? "" : "s"} ·{" "}
-                {queue.suggestedVersions} suggested question version
-                {queue.suggestedVersions === 1 ? "" : "s"} · {queue.suggestedSchemes} suggested mark
-                scheme{queue.suggestedSchemes === 1 ? "" : "s"}
-              </span>
-            )}
+            Imported assessment content stays SUGGESTED — invisible to students — until validated
+            here. Strongest candidates are listed first (marks reconciled, higher extraction
+            confidence, fewer findings); ambiguous material stays in the queue and is never
+            promoted automatically.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -397,13 +701,16 @@ export function TeacherContentView() {
               <button
                 type="button"
                 onClick={() => openPaper(p.id)}
-                className="flex w-full items-center justify-between gap-3 p-3 text-left"
+                className="flex w-full items-start justify-between gap-3 p-3 text-left"
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{p.title}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {[p.board, p.qualification, p.paperCode, p.sessionLabel].filter(Boolean).join(" · ")}
-                  </p>
+                <div className="min-w-0 space-y-1.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{p.title}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {[p.board, p.qualification, p.paperCode, p.sessionLabel].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                  <QualityBadges paper={p} />
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <StateBadge state={p.validationState} />
@@ -462,6 +769,9 @@ export function TeacherContentView() {
                           {busy === "paper-place" ? "Placing…" : "Place into subject"}
                         </Button>
                       </div>
+
+                      <FindingsPanel paperId={p.id} />
+
                       {review.versions.length === 0 && (
                         <p className="text-sm text-muted-foreground">
                           This paper has no question versions (empty import).
@@ -469,23 +779,52 @@ export function TeacherContentView() {
                       )}
                       <div className="space-y-2">
                         {review.versions.map((v) => (
-                          <VersionReviewCard key={v.versionId} version={v} busy={busy} onAction={(a, ver) => act(a, ver)} />
+                          <VersionReviewCard
+                            key={v.versionId}
+                            version={v}
+                            busy={busy}
+                            onAction={(a, ver) => act(a, ver)}
+                          />
                         ))}
                       </div>
                       {review.versions.length > 0 && (
                         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
                           <Button
                             size="sm"
-                            disabled={busy !== null || !allVersionsValidated}
+                            disabled={busy !== null || hasBlockedVersions}
                             title={
-                              allVersionsValidated
-                                ? undefined
-                                : "Validate every question version (and its scheme) first"
+                              hasBlockedVersions
+                                ? "Resolve REJECTED/FLAGGED versions first"
+                                : undefined
                             }
-                            onClick={() => act("paper-validate", null)}
+                            onClick={() => act("validate-all", null)}
                           >
-                            <Check className="size-4" aria-hidden="true" />
-                            {busy === "paper-validate" ? "Validating…" : "Validate paper → student-servable"}
+                            <ListChecks className="size-4" aria-hidden="true" />
+                            {busy === "validate-all"
+                              ? "Validating…"
+                              : "Validate all → student-servable"}
+                          </Button>
+                          {forceOffer === review.paper.id && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-orange-800"
+                              disabled={busy !== null}
+                              onClick={() => act("validate-all", null, true)}
+                            >
+                              <AlertTriangle className="size-4" aria-hidden="true" />
+                              Force past reconciliation warning
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-orange-800"
+                            disabled={busy !== null}
+                            onClick={() => act("paper-flag", null)}
+                          >
+                            <Flag className="size-4" aria-hidden="true" />
+                            {busy === "paper-flag" ? "Flagging…" : "Flag paper"}
                           </Button>
                           <Button
                             size="sm"
@@ -497,12 +836,10 @@ export function TeacherContentView() {
                             <X className="size-4" aria-hidden="true" />
                             {busy === "paper-reject" ? "Rejecting…" : "Reject paper"}
                           </Button>
-                          {!allVersionsValidated && (
-                            <span className="text-xs text-muted-foreground">
-                              The backend requires every question version validated before the
-                              paper can flip (409 otherwise).
-                            </span>
-                          )}
+                          <span className="text-xs text-muted-foreground">
+                            Batch validation refuses papers with REJECTED/FLAGGED versions or
+                            unreconciled imports — review those item-by-item.
+                          </span>
                         </div>
                       )}
                     </>

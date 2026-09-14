@@ -30,11 +30,14 @@ import type {
   StudentQuestionView,
   StructuredAttemptResultView,
   SubjectView,
+  TeacherEnrichedReviewQueueView,
+  TeacherFindingView,
   TeacherLearnerView,
   TeacherPaperReviewView,
   TeacherPaperSummary,
   TeacherReviewQueueView,
   TeacherSchemeActionResult,
+  TeacherValidateAllResult,
   TeacherVersionActionResult,
   TutorAnswerView,
 } from "./types";
@@ -325,6 +328,60 @@ export const api = {
   rejectMarkScheme: (schemeId: string) =>
     request<TeacherSchemeActionResult>(
       `/api/v1/teacher/content/mark-schemes/${schemeId}/reject`,
+      { method: "POST" },
+    ),
+
+  // ── V20 high-throughput review: enriched queue, batch validate, flag/unflag, findings ──
+
+  contentReviewQueueV2: () =>
+    request<TeacherEnrichedReviewQueueView>(
+      "/api/v1/teacher/content/review-queue-v2",
+    ),
+
+  validateAllForPaper: (paperId: string, force = false) =>
+    request<TeacherValidateAllResult>(
+      `/api/v1/teacher/content/exam-papers/${paperId}/validate-all${force ? "?force=true" : ""}`,
+      { method: "POST" },
+    ),
+
+  paperFindings: (paperId: string) =>
+    request<TeacherFindingView[]>(
+      `/api/v1/teacher/content/glm-ocr/papers/${paperId}/findings`,
+    ),
+
+  flagPaper: (paperId: string) =>
+    request<TeacherPaperSummary>(
+      `/api/v1/teacher/content/exam-papers/${paperId}/flag`,
+      { method: "POST" },
+    ),
+
+  unflagPaper: (paperId: string) =>
+    request<TeacherPaperSummary>(
+      `/api/v1/teacher/content/exam-papers/${paperId}/unflag`,
+      { method: "POST" },
+    ),
+
+  flagQuestionVersion: (versionId: string) =>
+    request<TeacherVersionActionResult>(
+      `/api/v1/teacher/content/question-versions/${versionId}/flag`,
+      { method: "POST" },
+    ),
+
+  unflagQuestionVersion: (versionId: string) =>
+    request<TeacherVersionActionResult>(
+      `/api/v1/teacher/content/question-versions/${versionId}/unflag`,
+      { method: "POST" },
+    ),
+
+  flagMarkScheme: (schemeId: string) =>
+    request<TeacherSchemeActionResult>(
+      `/api/v1/teacher/content/mark-schemes/${schemeId}/flag`,
+      { method: "POST" },
+    ),
+
+  unflagMarkScheme: (schemeId: string) =>
+    request<TeacherSchemeActionResult>(
+      `/api/v1/teacher/content/mark-schemes/${schemeId}/unflag`,
       { method: "POST" },
     ),
 

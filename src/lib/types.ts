@@ -432,10 +432,50 @@ export interface TeacherPaperSummary {
   validationState: string;
 }
 
+/**
+ * V20 enriched queue entry: the same SUGGESTED paper plus the quality signals a
+ * reviewer triages by (progress, bridge reconciliation, parser findings, mean
+ * extraction confidence). Server-sorted strongest-candidates-first.
+ */
+export interface TeacherEnrichedPaperSummary extends TeacherPaperSummary {
+  versionCount: number;
+  validatedVersions: number;
+  rejectedVersions: number;
+  flaggedVersions: number;
+  suggestedSchemes: number;
+  reconciliationStatus: string | null;
+  findingCount: number;
+  avgExtractionConfidence: number | null;
+  createdAt: string;
+}
+
+export interface TeacherEnrichedReviewQueueView {
+  papers: TeacherEnrichedPaperSummary[];
+  suggestedVersions: number;
+  suggestedSchemes: number;
+}
+
 export interface TeacherReviewQueueView {
   papers: TeacherPaperSummary[];
   suggestedVersions: number;
   suggestedSchemes: number;
+}
+
+/** One parser/bridge review finding (reconciliation + warnings) for a paper. */
+export interface TeacherFindingView {
+  source: string | null;
+  severity: string | null;
+  detail: string | null;
+  [key: string]: unknown;
+}
+
+/** Result of POST .../exam-papers/{id}/validate-all (BatchResult). */
+export interface TeacherValidateAllResult {
+  paperId: string;
+  paperState: string;
+  totalVersions: number;
+  versionsValidated: number;
+  schemesValidated: number;
 }
 
 /** Teacher-only: the deterministic marking contract per mark point. */
@@ -480,6 +520,9 @@ export interface TeacherVersionReview {
   points: TeacherPointReview[];
   options: TeacherOptionReview[];
   parts: TeacherPartReview[];
+  extractionConfidence: number | null;
+  extractionMethod: string | null;
+  sourceDocumentId: string | null;
 }
 
 export interface TeacherPaperReviewView {
