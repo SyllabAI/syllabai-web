@@ -269,6 +269,85 @@ export function SmartLessonView({
             </CardContent>
           </Card>
 
+          {(lesson.prerequisites.length > 0 || lesson.misconceptions.length > 0) && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {lesson.prerequisites.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">
+                      Prerequisites of {lesson.topicCode ?? "this topic"}
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Your measured mastery is the overlay — unmeasured is an honest gap,
+                      never a guess.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2 text-sm">
+                      {lesson.prerequisites.map((pr) => (
+                        <li
+                          key={pr.nodeId}
+                          className="flex flex-wrap items-center justify-between gap-2"
+                        >
+                          <button
+                            type="button"
+                            className="text-left font-medium underline-offset-2 hover:underline"
+                            onClick={() => selectTopic(pr.nodeId)}
+                          >
+                            {pr.code ? `${pr.code} — ${pr.title}` : pr.title}
+                          </button>
+                          {pr.measuredWeak ? (
+                            <Badge variant="destructive">weak · {fmt(pr.effectiveMastery)}</Badge>
+                          ) : pr.effectiveMastery != null ? (
+                            <Badge variant="secondary">strong · {fmt(pr.effectiveMastery)}</Badge>
+                          ) : (
+                            <Badge variant="outline">not yet measured</Badge>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              )}
+              {lesson.misconceptions.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">Known misconceptions in this area</CardTitle>
+                    <CardDescription className="text-xs">
+                      Validated KG entries; your probability lights up from your own answers.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2 text-sm">
+                      {lesson.misconceptions.map((m) => (
+                        <li
+                          key={m.nodeId}
+                          className="flex flex-wrap items-center justify-between gap-2"
+                        >
+                          <span className="font-medium">{m.title}</span>
+                          {m.active ? (
+                            <Badge variant="destructive">
+                              active · {fmt(m.probability)}
+                            </Badge>
+                          ) : m.probability != null ? (
+                            <Badge variant="secondary">{fmt(m.probability)}</Badge>
+                          ) : (
+                            <Badge variant="outline">not yet seen</Badge>
+                          )}
+                          {m.remediationNodeCode && (
+                            <span className="text-xs text-muted-foreground">
+                              fix: study {m.remediationNodeCode}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader>

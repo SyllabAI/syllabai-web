@@ -223,6 +223,8 @@ export interface SmartLessonView {
   policy: string;
   action: SmartLessonActionView;
   topicStatus: SmartLessonTopicStatusView;
+  prerequisites: SmartLessonPrerequisiteStatusView[];
+  misconceptions: SmartLessonMisconceptionStatusView[];
   evidence: SmartLessonEvidenceFactView[];
 }
 
@@ -252,6 +254,24 @@ export interface SmartLessonTopicStatusView {
 export interface SmartLessonEvidenceFactView {
   key: string;
   value: string;
+}
+
+export interface SmartLessonPrerequisiteStatusView {
+  nodeId: string;
+  code: string | null;
+  title: string | null;
+  effectiveMastery: number | null;
+  attempts: number | null;
+  measuredWeak: boolean;
+}
+
+export interface SmartLessonMisconceptionStatusView {
+  nodeId: string;
+  code: string | null;
+  title: string | null;
+  probability: number | null;
+  active: boolean;
+  remediationNodeCode: string | null;
 }
 
 export interface LearnerKnowledgeGraphView {
