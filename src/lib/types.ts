@@ -100,6 +100,8 @@ export interface SkillStateView {
   correctCount: number;
   lastPracticedAt: string;
   proceduralFluencyGap: number | null;
+  /** Human KG title (P1: backend-resolved); null → callers fall back. */
+  nodeName?: string | null;
 }
 
 export interface MisconceptionStateView {
@@ -108,12 +110,16 @@ export interface MisconceptionStateView {
   active: boolean;
   evidenceCount: number;
   lastEvidenceAt: string;
+  /** Human KG title (P1: backend-resolved); null → callers fall back. */
+  misconceptionName?: string | null;
 }
 
 export interface ReviewView {
   nodeId: string;
   dueAt: string;
   reason: string;
+  /** Human KG title (P1: backend-resolved); null → callers fall back. */
+  nodeName?: string | null;
 }
 
 export interface LearnerStateView {

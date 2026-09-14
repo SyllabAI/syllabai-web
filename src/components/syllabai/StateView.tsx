@@ -80,7 +80,7 @@ export function StateView({
                   {state.skillStates.map((s) => (
                     <TableRow key={s.nodeId}>
                       <TableCell className="font-medium">
-                        {nodeTitles[s.nodeId] ?? s.nodeId.slice(0, 8)}
+                        {s.nodeName ?? nodeTitles[s.nodeId] ?? s.nodeId.slice(0, 8)}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -146,7 +146,7 @@ export function StateView({
               <div key={m.misconceptionNodeId} className="rounded-lg border p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="text-sm font-medium">
-                    {misconceptionTitles[m.misconceptionNodeId] ?? m.misconceptionNodeId.slice(0, 8)}
+                    {m.misconceptionName ?? misconceptionTitles[m.misconceptionNodeId] ?? m.misconceptionNodeId.slice(0, 8)}
                   </span>
                   {m.active ? (
                     <Badge className="bg-amber-500 hover:bg-amber-500">active</Badge>

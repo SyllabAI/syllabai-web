@@ -316,9 +316,13 @@ export function PracticeView({
                         question?.options.find((o) => o.id === chosen)?.label ?? "";
                       const correctLabel = result.correctOptionLabel ?? "";
                       onAskTutorAbout(
-                        `I got this question wrong${
-                          topicTitle ? ` on ${topicTitle}` : ""
-                        } and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${correctLabel}. Can you explain the chemistry behind the correct answer?`,
+                        result.correct
+                          ? `I answered this question correctly${
+                              topicTitle ? ` on ${topicTitle}` : ""
+                            }: "${stem}" — I chose ${chosenLabel}, which was the right answer. Can you explain the chemistry behind it and what related ideas I should review to make sure I really understand it?`
+                          : `I got this question wrong${
+                              topicTitle ? ` on ${topicTitle}` : ""
+                            } and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${correctLabel}. Can you explain the chemistry behind the correct answer?`,
                       );
                     }}
                   >
