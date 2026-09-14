@@ -17,6 +17,8 @@ import type {
   AttemptResultView,
   ConceptGraphEdgesView,
   ConceptGraphSeedSummary,
+  ExamPaperBrowseView,
+  ExamPaperDetailView,
   HumanMarkView,
   KappaEvaluationView,
   LearnerKnowledgeGraphView,
@@ -29,6 +31,11 @@ import type {
   StructuredAttemptResultView,
   SubjectView,
   TeacherLearnerView,
+  TeacherPaperReviewView,
+  TeacherPaperSummary,
+  TeacherReviewQueueView,
+  TeacherSchemeActionResult,
+  TeacherVersionActionResult,
   TutorAnswerView,
 } from "./types";
 
@@ -268,4 +275,60 @@ export const api = {
     request<ConceptGraphEdgesView>(
       `/api/v1/teacher/concept-graph/edges?rootId=${encodeURIComponent(rootId)}`,
     ),
+
+  // ── teacher content validation (Master Spec §7: SUGGESTED never serves) ──
+
+  contentReviewQueue: () =>
+    request<TeacherReviewQueueView>("/api/v1/teacher/content/review-queue"),
+
+  paperReview: (paperId: string) =>
+    request<TeacherPaperReviewView>(
+      `/api/v1/teacher/content/exam-papers/${paperId}/review`,
+    ),
+
+  validatePaper: (paperId: string) =>
+    request<TeacherPaperSummary>(
+      `/api/v1/teacher/content/exam-papers/${paperId}/validate`,
+      { method: "POST" },
+    ),
+
+  rejectPaper: (paperId: string) =>
+    request<TeacherPaperSummary>(
+      `/api/v1/teacher/content/exam-papers/${paperId}/reject`,
+      { method: "POST" },
+    ),
+
+  validateQuestionVersion: (versionId: string) =>
+    request<TeacherVersionActionResult>(
+      `/api/v1/teacher/content/question-versions/${versionId}/validate`,
+      { method: "POST" },
+    ),
+
+  rejectQuestionVersion: (versionId: string) =>
+    request<TeacherVersionActionResult>(
+      `/api/v1/teacher/content/question-versions/${versionId}/reject`,
+      { method: "POST" },
+    ),
+
+  validateMarkScheme: (schemeId: string) =>
+    request<TeacherSchemeActionResult>(
+      `/api/v1/teacher/content/mark-schemes/${schemeId}/validate`,
+      { method: "POST", body: JSON.stringify({}) },
+    ),
+
+  rejectMarkScheme: (schemeId: string) =>
+    request<TeacherSchemeActionResult>(
+      `/api/v1/teacher/content/mark-schemes/${schemeId}/reject`,
+      { method: "POST" },
+    ),
+
+  // ── exam papers (learner browsing; content stays behind the serving gate) ──
+
+  examPapers: (subjectId?: string) =>
+    request<ExamPaperBrowseView[]>(
+      `/api/v1/exam-papers${subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : ""}`,
+    ),
+
+  examPaper: (paperId: string) =>
+    request<ExamPaperDetailView>(`/api/v1/exam-papers/${paperId}`),
 };

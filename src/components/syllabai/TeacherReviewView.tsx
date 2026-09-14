@@ -43,6 +43,7 @@ import {
   Users,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { TeacherContentView } from "@/components/syllabai/TeacherContentView";
 import { formatRelative, humanizeCode } from "@/lib/format";
 import { ConceptGraphView } from "@/components/syllabai/ConceptGraphView";
 import type {
@@ -100,7 +101,7 @@ export function TeacherReviewView() {
 
   // V15: the teacher tab hosts two surfaces — the Cycle-1 marking review
   // queue and the curriculum concept graph (4CH1 seed + T-C11 settled layer)
-  const [surface, setSurface] = useState<"marking" | "graph">("marking");
+  const [surface, setSurface] = useState<"marking" | "graph" | "content">("marking");
 
   // kappa gate
   const [kappa, setKappa] = useState<KappaEvaluationView | null>(null);
@@ -308,19 +309,24 @@ export function TeacherReviewView() {
 
   return (
     <div className="space-y-4">
-      <Tabs value={surface} onValueChange={(v) => setSurface(v as "marking" | "graph")}>
-        <TabsList className="grid h-auto w-full max-w-md grid-cols-2">
+      <Tabs value={surface} onValueChange={(v) => setSurface(v as "marking" | "graph" | "content")}>
+        <TabsList className="grid h-auto w-full max-w-md grid-cols-3">
           <TabsTrigger value="marking" className="text-xs">
             Marking review
           </TabsTrigger>
           <TabsTrigger value="graph" className="text-xs">
-            Curriculum concept graph
+            Curriculum graph
+          </TabsTrigger>
+          <TabsTrigger value="content" className="text-xs">
+            Content gate
           </TabsTrigger>
         </TabsList>
       </Tabs>
 
       {surface === "graph" ? (
         <ConceptGraphView />
+      ) : surface === "content" ? (
+        <TeacherContentView />
       ) : (
         <>
           <Alert>

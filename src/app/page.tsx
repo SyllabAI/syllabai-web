@@ -20,9 +20,11 @@ import type {
   SubjectView,
 } from "@/lib/types";
 import { TeacherReviewView } from "@/components/syllabai/TeacherReviewView";
+import { PapersView } from "@/components/syllabai/PapersView";
 import {
   Brain,
   ClipboardList,
+  FileText,
   GraduationCap,
   LayoutDashboard,
   LineChart,
@@ -299,7 +301,7 @@ export default function SyllabAiWorkbench() {
       <main className="mx-auto w-full max-w-5xl flex-1 scroll-mt-16 px-4 py-6">
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList
-            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-7" : "grid-cols-6"}`}
+            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-8" : "grid-cols-7"}`}
           >
             <TabsTrigger value="dashboard" className="gap-1.5">
               <LayoutDashboard className="size-4" aria-hidden="true" />
@@ -312,6 +314,10 @@ export default function SyllabAiWorkbench() {
             <TabsTrigger value="history" className="gap-1.5">
               <ClipboardList className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">History</span>
+            </TabsTrigger>
+            <TabsTrigger value="papers" className="gap-1.5">
+              <FileText className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Papers</span>
             </TabsTrigger>
             <TabsTrigger value="tutor" className="gap-1.5">
               <MessagesSquare className="size-4" aria-hidden="true" />
@@ -363,6 +369,14 @@ export default function SyllabAiWorkbench() {
               loading={historyLoading}
               error={historyError}
               onPracticeTopic={onPracticeTopic}
+            />
+          </TabsContent>
+          <TabsContent value="papers">
+            <PapersView
+              subjects={subjectsList}
+              selectedSubjectId={
+                subjectsList.find((s) => s.knowledgeNodeId === rootId)?.id ?? null
+              }
             />
           </TabsContent>
           <TabsContent value="tutor">

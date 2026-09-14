@@ -417,3 +417,125 @@ export interface ConceptGraphEdgesView {
   policy: string;
   edges: ConceptGraphEdgeView[];
 }
+
+/** ── Teacher content validation (Master Spec §7) + learner papers browsing ── */
+
+/** A paper in the teacher validation queue (POST-ingest everything is SUGGESTED). */
+export interface TeacherPaperSummary {
+  id: string;
+  title: string;
+  paperCode: string | null;
+  sessionLabel: string | null;
+  board: string | null;
+  qualification: string | null;
+  validationState: string;
+}
+
+export interface TeacherReviewQueueView {
+  papers: TeacherPaperSummary[];
+  suggestedVersions: number;
+  suggestedSchemes: number;
+}
+
+/** Teacher-only: the deterministic marking contract per mark point. */
+export interface TeacherPointReview {
+  id: string;
+  ref: string | null;
+  text: string;
+  marks: number;
+  acceptanceCriteria: string[];
+}
+
+/** Teacher-only: includes the correct flag and the misconception a distractor feeds. */
+export interface TeacherOptionReview {
+  id: string;
+  label: string;
+  text: string;
+  correct: boolean;
+  misconceptionNodeId: string | null;
+}
+
+export interface TeacherPartReview {
+  id: string;
+  label: string;
+  prompt: string;
+  commandWord: string | null;
+  marks: number;
+}
+
+/** One question version with its full review payload (content + answer key + scheme). */
+export interface TeacherVersionReview {
+  versionId: string;
+  questionId: string;
+  externalRef: string | null;
+  type: string;
+  stem: string;
+  marks: number;
+  version: number;
+  validationState: string;
+  commandWord: string | null;
+  schemeId: string | null;
+  schemeState: string | null;
+  points: TeacherPointReview[];
+  options: TeacherOptionReview[];
+  parts: TeacherPartReview[];
+}
+
+export interface TeacherPaperReviewView {
+  paper: {
+    id: string;
+    title: string;
+    paperCode: string | null;
+    sessionLabel: string | null;
+    board: string | null;
+    qualification: string | null;
+    validationState: string;
+  };
+  versions: TeacherVersionReview[];
+}
+
+/** Result of POST .../question-versions/{id}/validate|reject (VersionSummary). */
+export interface TeacherVersionActionResult {
+  id: string;
+  questionId: string;
+  version: number;
+  validationState: string;
+}
+
+/** Result of POST .../mark-schemes/{id}/validate|reject (SchemeSummary). */
+export interface TeacherSchemeActionResult {
+  id: string;
+  questionVersionId: string;
+  pointCount: number;
+  validationState: string;
+}
+
+/** Learner-facing paper metadata (no question content — serving stays gated). */
+export interface ExamPaperBrowseView {
+  id: string;
+  title: string;
+  board: string | null;
+  qualification: string | null;
+  unit: string | null;
+  sessionLabel: string | null;
+  paperCode: string | null;
+  validationState: string;
+  provenance: string;
+  questionPaperDocumentId: string | null;
+  markSchemeDocumentId: string | null;
+}
+
+export interface ExamPaperQuestionMeta {
+  questionId: string;
+  externalRef: string | null;
+  marks: number;
+  provenance: string;
+  versionValidationState: string | null;
+  partCount: number;
+  currentVersionId: string | null;
+}
+
+export interface ExamPaperDetailView {
+  paper: ExamPaperBrowseView;
+  questions: ExamPaperQuestionMeta[];
+}
