@@ -423,6 +423,7 @@ export interface ConceptGraphEdgesView {
 /** A paper in the teacher validation queue (POST-ingest everything is SUGGESTED). */
 export interface TeacherPaperSummary {
   id: string;
+  subjectId: string | null;
   title: string;
   paperCode: string | null;
   sessionLabel: string | null;
@@ -484,6 +485,7 @@ export interface TeacherVersionReview {
 export interface TeacherPaperReviewView {
   paper: {
     id: string;
+    subjectId: string | null;
     title: string;
     paperCode: string | null;
     sessionLabel: string | null;

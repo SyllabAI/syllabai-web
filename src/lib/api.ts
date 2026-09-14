@@ -292,6 +292,12 @@ export const api = {
       { method: "POST" },
     ),
 
+  placePaper: (paperId: string, subjectId: string) =>
+    request<TeacherPaperSummary>(
+      `/api/v1/teacher/content/exam-papers/${paperId}/place`,
+      { method: "POST", body: JSON.stringify({ subjectId }) },
+    ),
+
   rejectPaper: (paperId: string) =>
     request<TeacherPaperSummary>(
       `/api/v1/teacher/content/exam-papers/${paperId}/reject`,

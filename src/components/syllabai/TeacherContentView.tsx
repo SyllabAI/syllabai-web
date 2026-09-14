@@ -28,8 +28,16 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api, ApiError } from "@/lib/api";
 import type {
+  SubjectView,
   TeacherPaperReviewView,
   TeacherReviewQueueView,
   TeacherVersionReview,
@@ -224,6 +232,9 @@ export function TeacherContentView() {
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueError, setQueueError] = useState<string | null>(null);
 
+  const [subjects, setSubjects] = useState<SubjectView[]>([]);
+  const [placeSubjectId, setPlaceSubjectId] = useState<string | null>(null);
+
   const [openPaperId, setOpenPaperId] = useState<string | null>(null);
   const [review, setReview] = useState<TeacherPaperReviewView | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
@@ -246,6 +257,12 @@ export function TeacherContentView() {
 
   useEffect(() => {
     loadQueue();
+    // subjects feed the §7 placement control (never guessed by the pipeline —
+    // the reviewer picks the real curriculum subject here)
+    api
+      .subjects()
+      .then(setSubjects)
+      .catch(() => setSubjects([])); // honest empty: placement control shows unavailable
   }, [loadQueue]);
 
   const openPaper = useCallback(async (paperId: string) => {
@@ -268,7 +285,7 @@ export function TeacherContentView() {
 
   const act = useCallback(
     async (
-      action: "version-validate" | "version-reject" | "scheme-validate" | "scheme-reject" | "paper-validate" | "paper-reject",
+      action: "version-validate" | "version-reject" | "scheme-validate" | "scheme-reject" | "paper-validate" | "paper-reject" | "paper-place",
       version: TeacherVersionReview | null,
     ) => {
       if (!review) return;
@@ -295,6 +312,14 @@ export function TeacherContentView() {
         } else if (action === "paper-reject") {
           await api.rejectPaper(review.paper.id);
           setNotice("Paper rejected — content will never serve to students.");
+        } else if (action === "paper-place") {
+          if (!placeSubjectId) return;
+          const target = subjects.find((s) => s.id === placeSubjectId);
+          await api.placePaper(review.paper.id, placeSubjectId);
+          setNotice(
+            `Paper placed into ${target ? `${target.code} — ${target.name}` : "the selected subject"}. ` +
+              "Placement is association only — validation states are unchanged.",
+          );
         }
         // refresh both layers: the paper view and the queue counts/states
         const fresh = await api.paperReview(review.paper.id);
@@ -307,7 +332,7 @@ export function TeacherContentView() {
         setBusy(null);
       }
     },
-    [review],
+    [review, subjects, placeSubjectId],
   );
 
   if (queueLoading && !queue) {
@@ -398,6 +423,45 @@ export function TeacherContentView() {
                   )}
                   {review && !reviewLoading && (
                     <>
+                      {/* §7 placement: the pipeline never guesses the curriculum subject —
+                          the reviewer places the paper into the real one here. */}
+                      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2.5">
+                        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Placement
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {(() => {
+                            const current = subjects.find((s) => s.id === review.paper.subjectId);
+                            return current
+                              ? `currently in ${current.code} — ${current.name}`
+                              : review.paper.subjectId
+                                ? "currently in a subject this account cannot see"
+                                : "not placed into any subject yet";
+                          })()}
+                        </span>
+                        <div className="min-w-52">
+                          <Select value={placeSubjectId ?? ""} onValueChange={setPlaceSubjectId}>
+                            <SelectTrigger size="sm" aria-label="Target subject">
+                              <SelectValue placeholder="Target subject…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {subjects.map((s) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.code} — {s.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy !== null || !placeSubjectId}
+                          onClick={() => act("paper-place", null)}
+                        >
+                          {busy === "paper-place" ? "Placing…" : "Place into subject"}
+                        </Button>
+                      </div>
                       {review.versions.length === 0 && (
                         <p className="text-sm text-muted-foreground">
                           This paper has no question versions (empty import).
