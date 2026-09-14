@@ -682,6 +682,7 @@ export interface TestPreviewView {
   rootId: string;
   questionCount: number;
   totalMarks: number;
+  targetMarks: number | null;
   topics: TestTopicCoverage[];
   questions: TestQuestionView[];
 }

@@ -37,6 +37,7 @@ export function TestBuilderView({
   const [treeError, setTreeError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [maxQuestions, setMaxQuestions] = useState(20);
+  const [targetMarks, setTargetMarks] = useState<number | null>(null);
   const [includeAnswers, setIncludeAnswers] = useState(true);
   const [preview, setPreview] = useState<TestPreviewView | null>(null);
   const [building, setBuilding] = useState(false);
@@ -104,7 +105,8 @@ export function TestBuilderView({
       const view = await api.testBuilderPreview(
         rootId,
         Array.from(selected),
-        maxQuestions,
+        targetMarks && targetMarks > 0 ? maxQuestions : undefined,
+        targetMarks && targetMarks > 0 ? targetMarks : undefined,
         includeAnswers,
       );
       setPreview(view);
@@ -170,6 +172,30 @@ export function TestBuilderView({
                 }}
                 className="h-9"
               />
+              <p className="text-xs text-muted-foreground">
+                ignored when a marks target is set
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="tb-marks">Target marks (optional)</Label>
+              <Input
+                id="tb-marks"
+                type="number"
+                min={0}
+                max={200}
+                placeholder="e.g. 40"
+                value={targetMarks ?? ""}
+                onChange={(e) => {
+                  setPreview(null);
+                  const v = Number(e.target.value);
+                  setTargetMarks(e.target.value === "" || v <= 0 ? null : v);
+                }}
+                className="h-9"
+              />
+              <p className="text-xs text-muted-foreground">
+                marks-aware assembly: questions fill to the target (deterministic greedy,
+                smallest overshoot when exact is impossible)
+              </p>
             </div>
             <div className="flex items-end gap-2 pb-0.5">
               <Checkbox
@@ -250,7 +276,11 @@ export function TestBuilderView({
             <CardTitle className="text-base">Assembled test</CardTitle>
             <CardDescription>
               {preview.questionCount} question{preview.questionCount === 1 ? "" : "s"} ·{" "}
-              {preview.totalMarks} marks · {preview.topics.length} topic
+              {preview.totalMarks} marks
+              {preview.targetMarks
+                ? ` (target ${preview.targetMarks})`
+                : ""}{" "}
+              · {preview.topics.length} topic
               {preview.topics.length === 1 ? "" : "s"}
               {preview.topics
                 .filter((t) => t.servableQuestions === 0)

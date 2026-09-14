@@ -296,12 +296,14 @@ export const api = {
     rootId: string,
     topicNodeIds: string[],
     maxQuestions?: number,
+    targetMarks?: number,
     includeAnswers = false,
   ) => {
     const params = new URLSearchParams();
     params.set("rootId", rootId);
     if (topicNodeIds.length) params.set("topicNodeIds", topicNodeIds.join(","));
     if (maxQuestions) params.set("maxQuestions", String(maxQuestions));
+    if (targetMarks) params.set("targetMarks", String(targetMarks));
     if (includeAnswers) params.set("includeAnswers", "true");
     return request<TestPreviewView>(`/api/v1/teacher/tests/preview?${params}`);
   },
