@@ -141,6 +141,7 @@ def battery_for_paper(T, S, target, hdr_subject_fallback, first):
     check(f"B6a {tag} review header has subjectId (§7 placement context)",
           c == 200 and hdr.get("subjectId") is not None,
           f"status={c} subjectId={str(hdr.get('subjectId'))[:8]}")
+    schemeless = [v for v in vers if not v.get("schemeId")]
     teacher_sees_key = any(
         any(o.get("correct") for o in (v.get("options") or []))
         or (v.get("schemeId") and (v.get("points") or []))
@@ -148,6 +149,22 @@ def battery_for_paper(T, S, target, hdr_subject_fallback, first):
     check(f"B6b {tag} teacher review shows the answer key", teacher_sees_key,
           f"versions={len(vers)} "
           f"withScheme={sum(1 for v in vers if v.get('schemeId'))}")
+
+    # B11a marking-contract guard: scheme-less versions must block the paper
+    # flip unless the reviewer explicitly forces it (§7; found live by this
+    # battery — a June-2014 paper validated with 0 schemes and its attempts
+    # could never be marked).
+    if schemeless:
+        c, e = http("POST", f"/api/v1/teacher/content/exam-papers/{tid}/validate-all",
+                    token=T)
+        msg = str(e)
+        check(f"B11a {tag} scheme-less versions block the flip (409, guard)",
+              c == 409 and "mark scheme" in msg,
+              f"status={c} msg={msg[:90]}")
+        print(f"{tag} skipped: {len(schemeless)} scheme-less version(s) — the "
+              f"guard held; a teacher must author schemes first", flush=True)
+        return None, None
+
     v0 = vers[0] if vers else None
     v1 = vers[1] if len(vers) > 1 else None
 
@@ -386,18 +403,46 @@ def main():
 
     sid_fallback = targets[0].get("subjectId")
     first_qid = first_v0 = None
-    for i, target in enumerate(targets):
-        qid, v0 = battery_for_paper(T, S, target, sid_fallback, first=(i == 0))
-        if i == 0:
-            first_qid, first_v0 = qid, v0
+    full_targets = []
+    for target in targets:
+        qid, v0 = battery_for_paper(T, S, target, sid_fallback,
+                                    first=(first_qid is None))
+        if qid is not None:
+            full_targets.append(target)
+            if first_qid is None:
+                first_qid, first_v0 = qid, v0
+
+    # hygiene: anything still VALIDATED while scheme-less (published before the
+    # marking-contract guard existed) goes back to SUGGESTED via flag+unflag —
+    # serving stops immediately (FLAGGED) and the paper re-enters review
+    # honestly instead of staying unmarkable-published.
+    c, plist = http("GET", "/api/v1/exam-papers", token=T)
+    if isinstance(plist, list):
+        for p in plist:
+            if p.get("validationState") != "VALIDATED":
+                continue
+            c, rv = http("GET",
+                         f"/api/v1/teacher/content/exam-papers/{p['id']}/review",
+                         token=T)
+            vers = rv.get("versions", []) if isinstance(rv, dict) else []
+            if any(not v.get("schemeId") for v in vers):
+                c1, _ = http("POST",
+                             f"/api/v1/teacher/content/exam-papers/{p['id']}/flag",
+                             token=T)
+                c2, _ = http("POST",
+                             f"/api/v1/teacher/content/exam-papers/{p['id']}/unflag",
+                             token=T)
+                check(f"hygiene [{p.get('sessionLabel')}] scheme-less VALIDATED "
+                      "paper returned to review (flag+unflag)",
+                      c1 == 200 and c2 == 200, f"flag={c1} unflag={c2}")
 
     if first_qid:
         topic_mapping_segment(T, first_qid, first_v0, sid_fallback)
 
-    # B18 final census delta
+    # B18 final census delta (only full-sequence targets must have left)
     c, q2 = http("GET", "/api/v1/teacher/content/review-queue-v2", token=T)
     papers2 = q2.get("papers", []) if isinstance(q2, dict) else []
-    ids = {t["id"] for t in targets}
+    ids = {t["id"] for t in full_targets}
     still = [p for p in papers2 if p.get("id") in ids]
     check("B18 validated papers left the SUGGESTED queue", c == 200 and not still,
           f"suggested papers now="
