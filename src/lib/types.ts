@@ -612,3 +612,42 @@ export interface ExamPaperDetailView {
   paper: ExamPaperBrowseView;
   questions: ExamPaperQuestionMeta[];
 }
+
+// ── P9 Test Builder (mirrors core TestBuilderService.TestPreviewView) ──
+
+export interface TestPreviewView {
+  rootId: string;
+  questionCount: number;
+  totalMarks: number;
+  topics: TestTopicCoverage[];
+  questions: TestQuestionView[];
+}
+
+export interface TestTopicCoverage {
+  topicNodeId: string;
+  code: string;
+  title: string;
+  servableQuestions: number;
+}
+
+export interface TestQuestionView {
+  id: string;
+  type: string;
+  stem: string;
+  marks: number;
+  commandWord: string | null;
+  difficulty: number;
+  topicCode: string | null;
+  parts: { id: string; label: string; prompt: string; commandWord: string | null; marks: number }[];
+  options: { id: string; label: string; text: string }[];
+  answers: TestAnswerView[];
+  schemeState: string | null;
+}
+
+export interface TestAnswerView {
+  partLabel: string | null;
+  ref: string | null;
+  text: string;
+  marks: number;
+  acceptanceCriteria: string[];
+}

@@ -405,7 +405,7 @@ export default function SyllabAiWorkbench() {
           </TabsContent>
           {isTeacher && (
             <TabsContent value="teacher">
-              <TeacherReviewView />
+              <TeacherReviewView subjects={subjectsList} rootId={rootId} />
             </TabsContent>
           )}
         </Tabs>

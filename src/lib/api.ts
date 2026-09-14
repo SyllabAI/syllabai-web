@@ -41,6 +41,7 @@ import type {
   TeacherTopicRowView,
   TeacherValidateAllResult,
   TeacherVersionActionResult,
+  TestPreviewView,
   TutorAnswerView,
 } from "./types";
 
@@ -280,6 +281,22 @@ export const api = {
     request<ConceptGraphEdgesView>(
       `/api/v1/teacher/concept-graph/edges?rootId=${encodeURIComponent(rootId)}`,
     ),
+
+  // ── P9 Test Builder (route security: TEACHER or ADMIN) ──
+
+  testBuilderPreview: (
+    rootId: string,
+    topicNodeIds: string[],
+    maxQuestions?: number,
+    includeAnswers = false,
+  ) => {
+    const params = new URLSearchParams();
+    params.set("rootId", rootId);
+    if (topicNodeIds.length) params.set("topicNodeIds", topicNodeIds.join(","));
+    if (maxQuestions) params.set("maxQuestions", String(maxQuestions));
+    if (includeAnswers) params.set("includeAnswers", "true");
+    return request<TestPreviewView>(`/api/v1/teacher/tests/preview?${params}`);
+  },
 
   // ── teacher content validation (Master Spec §7: SUGGESTED never serves) ──
 

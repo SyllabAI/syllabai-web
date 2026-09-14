@@ -46,6 +46,7 @@ import { api, ApiError } from "@/lib/api";
 import { TeacherContentView } from "@/components/syllabai/TeacherContentView";
 import { formatRelative, humanizeCode } from "@/lib/format";
 import { ConceptGraphView } from "@/components/syllabai/ConceptGraphView";
+import { TestBuilderView } from "@/components/syllabai/TestBuilderView";
 import type {
   AnswerMarkingView,
   KappaEvaluationView,
@@ -76,7 +77,13 @@ function is409(e: unknown): boolean {
   return e instanceof ApiError && e.status === 409;
 }
 
-export function TeacherReviewView() {
+export function TeacherReviewView({
+  subjects = [],
+  rootId = null,
+}: {
+  subjects?: import("@/lib/types").SubjectView[];
+  rootId?: string | null;
+}) {
   // class list
   const [learners, setLearners] = useState<TeacherLearnerView[] | null>(null);
   const [learnersError, setLearnersError] = useState<string | null>(null);
@@ -99,9 +106,10 @@ export function TeacherReviewView() {
   const [comments, setComments] = useState("");
   const [pointDecisions, setPointDecisions] = useState<Record<string, number>>({});
 
-  // V15: the teacher tab hosts two surfaces — the Cycle-1 marking review
-  // queue and the curriculum concept graph (4CH1 seed + T-C11 settled layer)
-  const [surface, setSurface] = useState<"marking" | "graph" | "content">("marking");
+  // V15: the teacher tab hosts multiple surfaces — the Cycle-1 marking review
+  // queue, the curriculum concept graph (4CH1 seed + T-C11 settled layer),
+  // the content validation gate and the P9 Test Builder
+  const [surface, setSurface] = useState<"marking" | "graph" | "content" | "test">("marking");
 
   // kappa gate
   const [kappa, setKappa] = useState<KappaEvaluationView | null>(null);
@@ -309,8 +317,8 @@ export function TeacherReviewView() {
 
   return (
     <div className="space-y-4">
-      <Tabs value={surface} onValueChange={(v) => setSurface(v as "marking" | "graph" | "content")}>
-        <TabsList className="grid h-auto w-full max-w-md grid-cols-3">
+      <Tabs value={surface} onValueChange={(v) => setSurface(v as "marking" | "graph" | "content" | "test")}>
+        <TabsList className="grid h-auto w-full max-w-xl grid-cols-4">
           <TabsTrigger value="marking" className="text-xs">
             Marking review
           </TabsTrigger>
@@ -320,6 +328,9 @@ export function TeacherReviewView() {
           <TabsTrigger value="content" className="text-xs">
             Content gate
           </TabsTrigger>
+          <TabsTrigger value="test" className="text-xs">
+            Test builder
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -327,6 +338,8 @@ export function TeacherReviewView() {
         <ConceptGraphView />
       ) : surface === "content" ? (
         <TeacherContentView />
+      ) : surface === "test" ? (
+        <TestBuilderView subjects={subjects} selectedRootId={rootId} />
       ) : (
         <>
           <Alert>
