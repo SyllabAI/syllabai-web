@@ -269,6 +269,10 @@ def check_learner() -> None:
     # teacher surface (only when teacher credentials are provided)
     check_teacher(ch1)
 
+    # tutor generation leg (P1 2026-09-14): the one live-loop failure invisible
+    # from the outside — probe with the monitor's learner session
+    check_tutor(auth)
+
 
 def check_teacher(ch1: dict | None) -> None:
     if not (TEACHER_EMAIL and TEACHER_PASSWORD):
@@ -318,6 +322,39 @@ def check_teacher(ch1: dict | None) -> None:
 
 
 # ── 10. structured assessment / κ status ──────────────────────────────────────
+def check_tutor(auth: dict | None) -> None:
+    """P1 (2026-09-14): the tutor is the one leg of the student loop whose
+    failure mode is invisible from the outside — retrieval and grounding can
+    be healthy while generation 503s on every provider (live finding: 503
+    tutor_unavailable, 'all providers failed', Render logs + the ADMIN-gated
+    LLM health endpoint both unobservable). Probe it with the monitor's own
+    learner account so the 6-hourly report distinguishes:
+      200 grounded answer          -> LLM chain healthy
+      200 deterministic refusal    -> honest no-evidence path (no LLM call)
+      503 tutor_unavailable        -> LLM chain down (keys/quota) — flag it
+    """
+    if auth is None:
+        record("tutor", False, "skipped — monitor login unavailable",
+               "fix the monitor account first", warn=True)
+        return
+    status, body, err = http("POST", f"{BACKEND}/api/v1/tutor/ask", body={
+        "question": "What is an atom?"}, headers=auth, timeout=180)
+    if status == 200:
+        keys = sorted(body.keys()) if isinstance(body, dict) else []
+        record("tutor", True, f"200, shape {keys}",
+               "" if "answer" in keys or "citations" in keys or "refusal" in keys
+               else "200 but unexpected shape — verify tutor DTO")
+        return
+    if status == 503:
+        record("tutor", False, f"503 {err or (body or {}).get('message','')}",
+               "LLM chain failing on Render — check provider keys/quota "
+               "(SYLLABAI_GROQ/GEMINI/OPENROUTER keys) and Render logs; "
+               "retrieval+grounding are healthy, generation is not")
+        return
+    record("tutor", False, f"{status} {err}",
+           "tutor endpoint regression — inspect backend")
+
+
 def check_kappa() -> None:
     # Until T-C04 ships validated structured-assessment content there is no κ
     # to compute. The monitor carries the field so the weekly report shows it.
@@ -376,6 +413,7 @@ def main() -> int:
     check_web_bundle()
     check_learner()
     check_kappa()
+
     return report(wake)
 
 
