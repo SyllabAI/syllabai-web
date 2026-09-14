@@ -211,6 +211,49 @@ export interface LearnerPrerequisiteEdgeView {
 }
 
 /** GET /api/v1/learners/me/knowledge-graph response (F-034). */
+// Smart Lesson MVP (productization sprint §2): ONE explainable next action
+// for a selected topic — deterministic, evidence-gated, closed-loop.
+export interface SmartLessonView {
+  learnerId: string;
+  rootId: string;
+  topicNodeId: string;
+  topicCode: string | null;
+  topicTitle: string | null;
+  asOf: string;
+  policy: string;
+  action: SmartLessonActionView;
+  topicStatus: SmartLessonTopicStatusView;
+  evidence: SmartLessonEvidenceFactView[];
+}
+
+export interface SmartLessonActionView {
+  actionType: string;
+  reasonCode: string;
+  targetNodeId: string;
+  targetCode: string | null;
+  targetTitle: string | null;
+  questionId: string | null;
+  servableQuestionCount: number;
+  reasonDetail: string;
+}
+
+export interface SmartLessonTopicStatusView {
+  coverage: string;
+  attempts: number;
+  mastery: number | null;
+  effectiveMastery: number | null;
+  reviewDue: boolean;
+  strongestMisconceptionProbability: number | null;
+  fluencyGap: number | null;
+  tutorAsks: number;
+  servableQuestions: number;
+}
+
+export interface SmartLessonEvidenceFactView {
+  key: string;
+  value: string;
+}
+
 export interface LearnerKnowledgeGraphView {
   learnerId: string;
   rootId: string;

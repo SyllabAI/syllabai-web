@@ -8,6 +8,7 @@ import { DashboardView } from "@/components/syllabai/DashboardView";
 import { HistoryView } from "@/components/syllabai/HistoryView";
 import { MasteryMap } from "@/components/syllabai/MasteryMap";
 import { PracticeView } from "@/components/syllabai/PracticeView";
+import { SmartLessonView } from "@/components/syllabai/SmartLessonView";
 import { StateView } from "@/components/syllabai/StateView";
 import { TutorChatView, type TutorChatMessage } from "@/components/syllabai/TutorChatView";
 import { clearSession, api, currentUser, getToken, setSession } from "@/lib/api";
@@ -24,6 +25,7 @@ import { PapersView } from "@/components/syllabai/PapersView";
 import {
   Brain,
   ClipboardList,
+  Compass,
   FileText,
   GraduationCap,
   LayoutDashboard,
@@ -75,6 +77,9 @@ export default function SyllabAiWorkbench() {
   // Tutor draft: a question pre-filled from where the student came from
   // (a wrong answer or the next-best-actions card) — editable, never auto-sent.
   const [tutorDraft, setTutorDraft] = useState<string | null>(null);
+  // Smart Lesson (§2): bump on new evidence (attempt submitted) so the lesson
+  // view re-queries its topic and the recommendation reacts — closed loop.
+  const [lessonRefreshKey, setLessonRefreshKey] = useState(0);
   // T-029: the Teacher tab is a UI affordance for TEACHER/ADMIN accounts.
   // The backend enforces /api/v1/teacher/** (SecurityConfig) — this check only
   // decides whether the tab renders; it is never the authorization.
@@ -237,6 +242,7 @@ export default function SyllabAiWorkbench() {
   const handleAttemptSubmitted = useCallback(() => {
     refreshState();
     refreshHistory();
+    setLessonRefreshKey((k) => k + 1);   // Smart Lesson re-queries on new evidence
     if (rootId) {
       refreshGraph(rootId);
       refreshRecommendations(rootId);
@@ -301,11 +307,15 @@ export default function SyllabAiWorkbench() {
       <main className="mx-auto w-full max-w-5xl flex-1 scroll-mt-16 px-4 py-6">
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList
-            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-8" : "grid-cols-7"}`}
+            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-9" : "grid-cols-8"}`}
           >
             <TabsTrigger value="dashboard" className="gap-1.5">
               <LayoutDashboard className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">Dashboard</span>
+            </TabsTrigger>
+            <TabsTrigger value="lesson" className="gap-1.5">
+              <Compass className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Smart lesson</span>
             </TabsTrigger>
             <TabsTrigger value="practice" className="gap-1.5">
               <GraduationCap className="size-4" aria-hidden="true" />
@@ -350,6 +360,16 @@ export default function SyllabAiWorkbench() {
               onPracticeTopic={onPracticeTopic}
               onOpenMap={() => setTab("map")}
               onAskTutor={() => setTab("tutor")}
+            />
+          </TabsContent>
+          <TabsContent value="lesson">
+            <SmartLessonView
+              graph={graph}
+              rootId={rootId}
+              subjectName={subjectName}
+              refreshKey={lessonRefreshKey}
+              onPracticeTopic={onPracticeTopic}
+              onAskTutorAbout={onAskTutorAbout}
             />
           </TabsContent>
           <TabsContent value="practice">

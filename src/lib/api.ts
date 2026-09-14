@@ -26,6 +26,7 @@ import type {
   NextBestActionsView,
   NodeView,
   PrerequisiteView,
+  SmartLessonView,
   SmartMarkView,
   StudentQuestionView,
   StructuredAttemptResultView,
@@ -225,6 +226,13 @@ export const api = {
   recommendations: (rootId: string) =>
     request<NextBestActionsView>(
       `/api/v1/learners/me/recommendations?rootId=${encodeURIComponent(rootId)}`,
+    ),
+
+  // Smart Lesson MVP (§2): one explainable next action for a topic. Re-query
+  // after acting — new evidence changes the decision (closed loop).
+  smartLesson: (rootId: string, topicNodeId: string) =>
+    request<SmartLessonView>(
+      `/api/v1/learners/me/smart-lesson?rootId=${encodeURIComponent(rootId)}&topicNodeId=${encodeURIComponent(topicNodeId)}`,
     ),
 
   tutorAsk: (question: string) =>
