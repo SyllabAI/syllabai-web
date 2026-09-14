@@ -37,6 +37,8 @@ import type {
   TeacherPaperSummary,
   TeacherReviewQueueView,
   TeacherSchemeActionResult,
+  TeacherTopicMappingResult,
+  TeacherTopicRowView,
   TeacherValidateAllResult,
   TeacherVersionActionResult,
   TutorAnswerView,
@@ -383,6 +385,19 @@ export const api = {
     request<TeacherSchemeActionResult>(
       `/api/v1/teacher/content/mark-schemes/${schemeId}/unflag`,
       { method: "POST" },
+    ),
+
+  // ── §10 topic mapping: ingestion anchors -> real curriculum topics ──
+
+  mapQuestionTopics: (questionId: string, primaryNodeId: string, secondaryNodeIds: string[] = []) =>
+    request<TeacherTopicMappingResult>(
+      `/api/v1/teacher/content/questions/${questionId}/topics`,
+      { method: "POST", body: JSON.stringify({ primaryNodeId, secondaryNodeIds }) },
+    ),
+
+  questionTopicRows: (questionId: string) =>
+    request<TeacherTopicRowView[]>(
+      `/api/v1/teacher/content/questions/${questionId}/topics`,
     ),
 
   // ── exam papers (learner browsing; content stays behind the serving gate) ──

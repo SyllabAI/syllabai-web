@@ -49,12 +49,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { api, ApiError } from "@/lib/api";
 import type {
+  NodeView,
   SubjectView,
   TeacherEnrichedPaperSummary,
   TeacherFindingView,
   TeacherPaperReviewView,
+  TeacherTopicMappingResult,
+  TeacherTopicRowView,
   TeacherVersionReview,
 } from "@/lib/types";
 import {
@@ -66,7 +78,9 @@ import {
   FlagOff,
   Info,
   ListChecks,
+  MapPin,
   RefreshCw,
+  Search,
   ShieldCheck,
   X,
 } from "lucide-react";
@@ -231,13 +245,172 @@ function FindingsPanel({ paperId }: { paperId: string }) {
   );
 }
 
+/** a KG topic offered by the picker (TOPIC or SUBTOPIC nodes, anchors excluded) */
+interface TopicOption {
+  id: string;
+  code: string;
+  title: string;
+  path: string; // "S1 · States of matter" style breadcrumb
+}
+
+function flattenTopics(node: NodeView, path: string[], out: TopicOption[]) {
+  const nextPath = node.type === "SECTION" || node.type === "TOPIC" ? [...path, node.title] : path;
+  if (node.type === "TOPIC" || node.type === "SUBTOPIC") {
+    if (!node.code.startsWith("ING-")) {
+      out.push({
+        id: node.id,
+        code: node.code,
+        title: node.title,
+        path: path.join(" · "),
+      });
+    }
+  }
+  (node.children ?? []).forEach((c) => flattenTopics(c, nextPath, out));
+}
+
+/**
+ * §10 topic picker: searchable combobox over the subject's KG topics. Mapping
+ * is a factual association (which topic this question tests) — it never flips
+ * validation states. Until a question is mapped off its ingestion anchor,
+ * subject-scoped practice cannot see it; the picker shows that anchor state.
+ */
+function TopicPicker({
+  questionId,
+  subjectRootId,
+  onMapped,
+}: {
+  questionId: string;
+  subjectRootId: string | null;
+  onMapped: (message: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [options, setOptions] = useState<TopicOption[] | null>(null);
+  const [current, setCurrent] = useState<TeacherTopicRowView[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!subjectRootId || options != null) return;
+    api
+      .knowledgeTree(subjectRootId, false)
+      .then((tree) => {
+        const out: TopicOption[] = [];
+        flattenTopics(tree, [], out);
+        setOptions(out);
+      })
+      .catch(() => setOptions([]));
+  }, [subjectRootId, options]);
+
+  useEffect(() => {
+    if (current == null) {
+      api
+        .questionTopicRows(questionId)
+        .then(setCurrent)
+        .catch(() => setCurrent([]));
+    }
+  }, [current, questionId]);
+
+  const primaryRow = current?.find((r) => r.primary);
+  const isAnchored =
+    primaryRow != null && (primaryRow.code?.startsWith("ING-") ?? false);
+
+  const pick = async (option: TopicOption) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.mapQuestionTopics(questionId, option.id);
+      setCurrent(null); // refetch on next render
+      onMapped(`Question mapped to ${r.primaryCode} — ${r.primaryTitle}.`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "mapping failed");
+    } finally {
+      setBusy(false);
+      setOpen(false);
+    }
+  };
+
+  if (!subjectRootId) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Topic mapping needs the paper to be placed in a subject first.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <MapPin className="size-3.5 text-muted-foreground" aria-hidden="true" />
+        {primaryRow ? (
+          <span className="text-xs">
+            {isAnchored ? (
+              <>
+                <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                  unmapped (ingestion anchor)
+                </Badge>{" "}
+                <span className="text-muted-foreground">
+                  students cannot practise this question until it is mapped to a real topic
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="font-medium">{primaryRow.code}</span>{" "}
+                <span className="text-muted-foreground">{primaryRow.title}</span>
+              </>
+            )}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">no topic rows</span>
+        )}
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" disabled={busy || options == null}>
+              <Search className="size-3.5" aria-hidden="true" />
+              {busy ? "Mapping…" : "Map to curriculum topic"}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-0" align="start">
+            <Command>
+              <CommandInput placeholder="Search topics (e.g. electrolysis)…" />
+              <CommandList>
+                <CommandEmpty>No topics found.</CommandEmpty>
+                {options != null &&
+                  [...new Set(options.map((o) => o.path))].map((section) => (
+                    <CommandGroup key={section} heading={section || "Topics"}>
+                      {options
+                        .filter((o) => o.path === section)
+                        .map((o) => (
+                          <CommandItem
+                            key={o.id}
+                            value={`${o.code} ${o.title}`}
+                            onSelect={() => pick(o)}
+                          >
+                            <span className="font-mono text-xs text-muted-foreground">{o.code}</span>{" "}
+                            {o.title}
+                          </CommandItem>
+                        ))}
+                    </CommandGroup>
+                  ))}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 function VersionReviewCard({
   version,
   busy,
+  subjectRootId,
   onAction,
+  onTopicMapped,
 }: {
   version: TeacherVersionReview;
   busy: string | null;
+  subjectRootId: string | null;
   onAction: (
     action:
       | "version-validate"
@@ -250,6 +423,7 @@ function VersionReviewCard({
       | "scheme-unflag",
     v: TeacherVersionReview,
   ) => void;
+  onTopicMapped: (message: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -291,6 +465,11 @@ function VersionReviewCard({
 
       {open && (
         <div className="space-y-4 border-t p-3">
+          <TopicPicker
+            questionId={version.questionId}
+            subjectRootId={subjectRootId}
+            onMapped={onTopicMapped}
+          />
           {version.options.length > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -783,7 +962,12 @@ export function TeacherContentView() {
                             key={v.versionId}
                             version={v}
                             busy={busy}
+                            subjectRootId={
+                              subjects.find((s) => s.id === review.paper.subjectId)
+                                ?.knowledgeNodeId ?? null
+                            }
                             onAction={(a, ver) => act(a, ver)}
+                            onTopicMapped={(m) => setNotice(m)}
                           />
                         ))}
                       </div>

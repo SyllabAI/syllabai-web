@@ -478,6 +478,23 @@ export interface TeacherValidateAllResult {
   schemesValidated: number;
 }
 
+/** §10 topic mapping: result of POST .../questions/{id}/topics. */
+export interface TeacherTopicMappingResult {
+  questionId: string;
+  primaryNodeId: string;
+  primaryCode: string;
+  primaryTitle: string;
+  topicCount: number;
+}
+
+/** One row of a question's current topic mapping (GET .../questions/{id}/topics). */
+export interface TeacherTopicRowView {
+  nodeId: string;
+  primary: boolean;
+  code: string | null;
+  title: string | null;
+}
+
 /** Teacher-only: the deterministic marking contract per mark point. */
 export interface TeacherPointReview {
   id: string;
