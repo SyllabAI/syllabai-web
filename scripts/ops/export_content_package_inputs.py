@@ -58,10 +58,10 @@ def main() -> int:
 
     s, login = http("POST", "/api/v1/auth/login",
                     payload={"email": TEACHER_EMAIL, "password": TEACHER_PASSWORD})
-    if s != 200 or not login.get("token"):
+    tok = login.get("accessToken") if isinstance(login, dict) else None
+    if s != 200 or not tok:
         print(f"FAIL teacher login status={s}")
         return 1
-    tok = login["token"]
     print(f"PASS teacher login status={s}")
 
     # ── choose the positive case: one fully-VALIDATED paper ──────────────
