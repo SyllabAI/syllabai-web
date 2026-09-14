@@ -14,6 +14,11 @@ name: V20 Verify
 
 on:
   workflow_dispatch:
+    inputs:
+      target_count:
+        description: "How many SUGGESTED papers to dogfood end-to-end (default 1)"
+        required: false
+        default: "3"
 
 permissions:
   contents: read
@@ -34,4 +39,5 @@ jobs:
           BACKEND_URL: https://syllabai-core.onrender.com
           TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
           TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          TARGET_COUNT: ${{ github.event.inputs.target_count || '3' }}
         run: python3 scripts/ops/v20_battery.py
