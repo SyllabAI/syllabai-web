@@ -1,0 +1,37 @@
+name: V20 Verify
+
+# One-shot production verification of the V20 serving gate + teacher review
+# workflow (paper-level FLAGGED gate, batch validate-all, topic mapping and
+# their negative cases) — the teacher-side battery that the student-side probe
+# cannot cover. Runs on demand with the SAME pilot teacher secrets the monitor
+# uses; prints verdicts only, never secrets.
+#
+# The battery is self-consistent: it takes the smallest fully-SUGGESTED paper
+# from the review queue and dogfoods the ENTIRE §7 workflow on it (validate →
+# attempt → flag → unflag → revalidate), ending with that paper VALIDATED.
+# One question of it is remapped off its ingestion anchor onto a real
+# curriculum topic (the intended §10 workflow). No content is deleted.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v20-verify
+  cancel-in-progress: false
+
+jobs:
+  battery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run V20 teacher-side battery against production
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+        run: python3 scripts/ops/v20_battery.py
