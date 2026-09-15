@@ -529,6 +529,89 @@ export interface TeacherEnrichedReviewQueueView {
   suggestedSchemes: number;
 }
 
+/**
+ * Sprint-2 §7 review-queue v3: the v2 signals plus the reviewability and
+ * value signals a reviewer triages by (scheme linkage, curriculum mapping,
+ * novel coverage) and the human-legible rank reasons. Server-sorted
+ * deterministically — ordering is a triage aid, never a promotion.
+ */
+export interface TeacherEnrichedPaperSummaryV3 extends TeacherEnrichedPaperSummary {
+  totalQuestions: number;
+  mappedQuestions: number;
+  questionsWithScheme: number;
+  novelTopicCount: number;
+  rankReasons: string[];
+}
+
+export interface TeacherEnrichedReviewQueueViewV3 {
+  papers: TeacherEnrichedPaperSummaryV3[];
+  suggestedVersions: number;
+  suggestedSchemes: number;
+  practicableTopicCount: number;
+}
+
+/** ── Sprint-2 §6/§7 marking throughput lane ── */
+
+/** one paper group in the deterministic marking queue (one mark scheme in working memory). */
+export interface MarkingGroupView {
+  paperId: string;
+  paperTitle: string | null;
+  sessionLabel: string | null;
+  paperCode: string | null;
+  count: number;
+  oldestPendingAt: string;
+  oldestWaitingHours: number | null;
+}
+
+/** a queue item: the marking view plus paper context and the mark→next link. */
+export interface MarkingQueueItem {
+  answer: AnswerMarkingView;
+  paperId: string | null;
+  paperTitle: string | null;
+  sessionLabel: string | null;
+  paperCode: string | null;
+  evidenceEmitted: boolean;
+  nextAnswerId: string | null;
+}
+
+export interface MarkingQueueView {
+  state: string;
+  groups: MarkingGroupView[];
+  items: MarkingQueueItem[];
+}
+
+export interface PendingPaperView {
+  paperId: string;
+  paperTitle: string | null;
+  paperCode: string | null;
+  pending: number;
+}
+
+/** throughput metrics — counts of what happened, never estimates. */
+export interface MarkingThroughputView {
+  answersByState: Record<string, number>;
+  humanMarks24h: number;
+  humanMarks7d: number;
+  pendingByPaper: PendingPaperView[];
+  oldestPendingAt: string | null;
+  oldestPendingHours: number | null;
+}
+
+export interface SmartMarkBatchItem {
+  answerId: string;
+  outcome: "MARKED" | "FAILED" | "SKIPPED_ALREADY_MARKED";
+  marksAwarded: number | null;
+  reason: string | null;
+}
+
+export interface SmartMarkBatchView {
+  requested: number;
+  marked: number;
+  skipped: number;
+  failed: number;
+  items: SmartMarkBatchItem[];
+}
+
 export interface TeacherReviewQueueView {
   papers: TeacherPaperSummary[];
   suggestedVersions: number;

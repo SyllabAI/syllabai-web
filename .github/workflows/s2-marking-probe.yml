@@ -1,0 +1,44 @@
+name: S2 Marking Probe
+
+# Sprint-2 §6/§7 production verification — the marking-throughput lane
+# (queue-v2, throughput, smart-mark-batch) and the review-queue
+# intelligence (review-queue-v3) against production, with the SAME pilot
+# teacher secrets the census, monitor and V20 battery use. Read-only for
+# learner data: GETs plus ONE zero-mutation batch call (unknown answer id →
+# honest FAILED item). Prints counts only, never secrets; JSON snapshot
+# uploaded as a workflow artifact. Honesty invariants verified live:
+# deterministic group ordering, contiguity, mark→next chain integrity,
+# signal bounds, no fabricated rank reasons.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s2-marking-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe marking throughput lane against production
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          PROBE_PATH: s2-marking-probe.json
+        run: python3 scripts/ops/s2_marking_probe.py
+
+      - name: Upload probe snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s2-marking-probe
+          path: s2-marking-probe.json
+          if-no-files-found: ignore

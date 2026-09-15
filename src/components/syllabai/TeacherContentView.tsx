@@ -64,6 +64,7 @@ import type {
   NodeView,
   SubjectView,
   TeacherEnrichedPaperSummary,
+  TeacherEnrichedPaperSummaryV3,
   TeacherFindingView,
   TeacherPaperReviewView,
   TeacherTopicMappingResult,
@@ -154,6 +155,14 @@ function confidenceBadgeClass(c: number | null): string | null {
 function QualityBadges({ paper }: { paper: TeacherEnrichedPaperSummary }) {
   const recon =
     paper.reconciliationStatus == null ? null : paper.reconciliationStatus === "OK";
+  // sprint-2 §7 signals (present on the v3 queue; absent on plain v2 rows)
+  const v3 = paper as TeacherEnrichedPaperSummaryV3;
+  const hasV3 =
+    typeof v3.totalQuestions === "number" && typeof v3.rankReasons !== "undefined";
+  const schemeRatio =
+    hasV3 && v3.totalQuestions > 0 ? v3.questionsWithScheme / v3.totalQuestions : null;
+  const mappingRatio =
+    hasV3 && v3.totalQuestions > 0 ? v3.mappedQuestions / v3.totalQuestions : null;
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {recon != null && (
@@ -166,6 +175,26 @@ function QualityBadges({ paper }: { paper: TeacherEnrichedPaperSummary }) {
           }
         >
           {recon ? "marks reconciled" : "needs reconciliation review"}
+        </Badge>
+      )}
+      {hasV3 && schemeRatio != null && schemeRatio >= 1 && (
+        <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+          scheme linked for all {v3.totalQuestions}
+        </Badge>
+      )}
+      {hasV3 && schemeRatio != null && schemeRatio < 1 && (
+        <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+          scheme {v3.questionsWithScheme}/{v3.totalQuestions}
+        </Badge>
+      )}
+      {hasV3 && mappingRatio != null && mappingRatio > 0 && (
+        <Badge variant="outline" className="border-teal-200 bg-teal-50 text-teal-700">
+          mapped {v3.mappedQuestions}/{v3.totalQuestions}
+        </Badge>
+      )}
+      {hasV3 && v3.novelTopicCount > 0 && (
+        <Badge variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">
+          {v3.novelTopicCount} novel topic{v3.novelTopicCount === 1 ? "" : "s"}
         </Badge>
       )}
       {paper.findingCount > 0 && (
@@ -187,6 +216,16 @@ function QualityBadges({ paper }: { paper: TeacherEnrichedPaperSummary }) {
         </Badge>
       )}
     </div>
+  );
+}
+
+/** sprint-2 §7: the human-legible ranking reasons under a queue row */
+function RankReasons({ paper }: { paper: TeacherEnrichedPaperSummaryV3 }) {
+  if (!paper.rankReasons || paper.rankReasons.length === 0) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      <span className="font-medium">Why this rank:</span> {paper.rankReasons.join(" · ")}
+    </p>
   );
 }
 
@@ -719,7 +758,8 @@ function VersionReviewCard({
 }
 
 export function TeacherContentView() {
-  const [queue, setQueue] = useState<TeacherEnrichedPaperSummary[] | null>(null);
+  const [queue, setQueue] = useState<TeacherEnrichedPaperSummaryV3[] | null>(null);
+  const [practicableTopicCount, setPracticableTopicCount] = useState<number | null>(null);
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueError, setQueueError] = useState<string | null>(null);
 
@@ -740,8 +780,11 @@ export function TeacherContentView() {
     setQueueLoading(true);
     setQueueError(null);
     try {
-      const view = await api.contentReviewQueueV2();
+      // sprint-2 §7: the v3 queue — scheme linkage, curriculum mapping and
+      // novel-coverage signals plus the rank reasons, deterministically sorted
+      const view = await api.contentReviewQueueV3();
       setQueue(view.papers);
+      setPracticableTopicCount(view.practicableTopicCount);
     } catch (err) {
       setQueueError(err instanceof ApiError ? err.message : "review queue unavailable");
     } finally {
@@ -861,8 +904,9 @@ export function TeacherContentView() {
         // refresh both layers: the paper view and the queue counts/states
         const fresh = await api.paperReview(review.paper.id);
         setReview(fresh);
-        const freshQueue = await api.contentReviewQueueV2();
+        const freshQueue = await api.contentReviewQueueV3();
         setQueue(freshQueue.papers);
+        setPracticableTopicCount(freshQueue.practicableTopicCount);
       } catch (err) {
         // 409s are the workflow's own guardrails — surface them verbatim; the
         // REVIEW_REQUIRED batch guard additionally offers the explicit force retry
@@ -929,9 +973,16 @@ export function TeacherContentView() {
           </CardTitle>
           <CardDescription>
             Imported assessment content stays SUGGESTED — invisible to students — until validated
-            here. Strongest candidates are listed first (marks reconciled, higher extraction
-            confidence, fewer findings); ambiguous material stays in the queue and is never
-            promoted automatically.
+            here. The queue is deterministically ordered by defensible review signals (marks
+            reconciled, scheme linkage, curriculum mapping, novel coverage, extraction
+            confidence) with the reasons stated under each row — a triage aid that never
+            promotes anything automatically.
+            {practicableTopicCount != null && (
+              <span className="ml-1 text-muted-foreground/80">
+                {practicableTopicCount} topic{practicableTopicCount === 1 ? "" : "s"} practicable
+                from validated content today.
+              </span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -955,6 +1006,7 @@ export function TeacherContentView() {
                     </p>
                   </div>
                   <QualityBadges paper={p} />
+                  <RankReasons paper={p} />
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <StateBadge state={p.validationState} />

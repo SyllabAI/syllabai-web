@@ -37,6 +37,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Gauge,
+  ListChecks,
   RotateCw,
   ShieldCheck,
   Sparkles,
@@ -51,6 +52,8 @@ import { ClassIntelligenceView } from "@/components/syllabai/ClassIntelligenceVi
 import type {
   AnswerMarkingView,
   KappaEvaluationView,
+  MarkingQueueView,
+  MarkingThroughputView,
   SmartMarkBreakdownItem,
   SmartMarkView,
   TeacherLearnerView,
@@ -89,11 +92,14 @@ export function TeacherReviewView({
   const [learners, setLearners] = useState<TeacherLearnerView[] | null>(null);
   const [learnersError, setLearnersError] = useState<string | null>(null);
 
-  // marking queue
+  // marking queue (sprint-2 §6/§7: the deterministic paper-grouped v2 queue)
   const [queueState, setQueueState] = useState<string>("PENDING");
-  const [queue, setQueue] = useState<AnswerMarkingView[] | null>(null);
+  const [queue, setQueue] = useState<MarkingQueueView | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [queueLoading, setQueueLoading] = useState(false);
+
+  // marking throughput metrics (counts of what happened)
+  const [throughput, setThroughput] = useState<MarkingThroughputView | null>(null);
 
   // selected answer detail + actions
   const [detail, setDetail] = useState<AnswerMarkingView | null>(null);
@@ -143,7 +149,7 @@ export function TeacherReviewView({
     setQueueLoading(true);
     setQueueError(null);
     try {
-      const view = await api.markingQueue(state);
+      const view = await api.markingQueueV2(state);
       if (seq !== queueSeq.current) return; // a newer state switch won
       setQueue(view);
     } catch (e) {
@@ -151,6 +157,15 @@ export function TeacherReviewView({
       setQueueError(e instanceof ApiError ? e.message : "Could not load the marking queue.");
     } finally {
       if (seq === queueSeq.current) setQueueLoading(false);
+    }
+  }, []);
+
+  const loadThroughput = useCallback(async () => {
+    try {
+      setThroughput(await api.markingThroughput());
+    } catch {
+      // the throughput panel is a convenience — its failure never blocks marking
+      setThroughput(null);
     }
   }, []);
 
@@ -178,7 +193,8 @@ export function TeacherReviewView({
   useEffect(() => {
     loadLearners();
     loadKappa();
-  }, [loadLearners, loadKappa]);
+    loadThroughput();
+  }, [loadLearners, loadKappa, loadThroughput]);
 
   useEffect(() => {
     loadQueue(queueState);
@@ -220,9 +236,46 @@ export function TeacherReviewView({
     async (answerId: string) => {
       await selectAnswer(answerId);
       await loadQueue(queueState);
-      await loadKappa();
+      await loadThroughput();
+      await loadKappa(); // human marks extend the κ pairing set
     },
-    [selectAnswer, loadQueue, queueState, loadKappa],
+    [selectAnswer, loadQueue, queueState, loadThroughput, loadKappa],
+  );
+
+  /** sprint-2 §6: bounded Smart Mark batch for one paper group — runs the
+   *  existing per-answer pipeline with honest per-item outcomes; partial
+   *  success is reported, never hidden. */
+  const runBatchForGroup = useCallback(
+    async (paperId: string) => {
+      if (!queue) return;
+      const ids = queue.items
+        .filter((i) => i.paperId === paperId)
+        .map((i) => i.answer.answerId)
+        .slice(0, 50);
+      if (ids.length === 0) return;
+      setActionBusy("batch");
+      setActionError(null);
+      setActionNotice(null);
+      try {
+        const result = await api.smartMarkBatch(ids);
+        setActionNotice(
+          `Smart Mark batch: ${result.marked} marked · ${result.skipped} skipped (already marked) · ${result.failed} failed` +
+            (result.failed > 0
+              ? ` — first failure: ${result.items.find((i) => i.outcome === "FAILED")?.reason ?? "unknown"}`
+              : ""),
+        );
+        if (detail) {
+          await selectAnswer(detail.answerId);
+        }
+        await loadQueue(queueState);
+        await loadThroughput();
+      } catch (e) {
+        setActionError(e instanceof ApiError ? e.message : "The batch could not run.");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [queue, detail, selectAnswer, loadQueue, queueState, loadThroughput],
   );
 
   const runSmartMark = useCallback(
@@ -283,6 +336,24 @@ export function TeacherReviewView({
       }
     },
     [marksInput, comments, pointDecisions, refreshDetailAndQueue],
+  );
+
+  /** sprint-2 §6: record the mark, then advance to the next answer in the
+   *  deterministic queue order — the mark&next workflow. The queue payload
+   *  carries the chain; no second lookup needed. */
+  const submitHumanMarkAndNext = useCallback(
+    async (answerId: string, partMarks: number) => {
+      // capture the next link BEFORE the queue refresh removes the row
+      const nextId =
+        queue?.items.find((i) => i.answer.answerId === answerId)?.nextAnswerId ?? null;
+      await submitHumanMark(answerId, partMarks);
+      if (nextId) {
+        await selectAnswer(nextId);
+      } else {
+        setDetail(null); // queue exhausted for this state
+      }
+    },
+    [queue, submitHumanMark, selectAnswer],
   );
 
   const recomputeKappa = useCallback(async () => {
@@ -480,7 +551,63 @@ export function TeacherReviewView({
         </CardContent>
       </Card>
 
-      {/* ── Marking review queue ───────────────────────────────── */}
+      {/* ── Marking throughput metrics (§6) ────────────────────── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ListChecks className="size-4 text-primary" aria-hidden="true" />
+            Marking throughput
+          </CardTitle>
+          <CardDescription>
+            Counts of what happened — never estimates. The pending backlog is what keeps class
+            mastery from populating: structured evidence fires only at first authoritative
+            marking.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!throughput ? (
+            <Skeleton className="h-9 w-full max-w-xl" />
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              {QUEUE_STATES.map((s) => (
+                <Badge key={s.value} variant="secondary" className="gap-1">
+                  {s.label}
+                  <span className="font-mono">
+                    {throughput.answersByState[s.value] ?? 0}
+                  </span>
+                </Badge>
+              ))}
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">
+                human marks 24h <span className="font-mono">{throughput.humanMarks24h}</span>{" "}
+                / 7d <span className="font-mono">{throughput.humanMarks7d}</span>
+              </span>
+              {throughput.oldestPendingAt && (
+                <>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="text-muted-foreground">
+                    oldest pending waited{" "}
+                    <span className="font-mono">
+                      {throughput.oldestPendingHours ?? 0}h
+                    </span>
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+          {throughput && throughput.pendingByPaper.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {throughput.pendingByPaper.map((p) => (
+                <Badge key={p.paperId} variant="outline" className="text-xs">
+                  {p.paperTitle ?? p.paperCode ?? "paper"} · {p.pending} pending
+                </Badge>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Marking review queue (§6/§7 deterministic grouping) ── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -488,8 +615,10 @@ export function TeacherReviewView({
             Marking review queue
           </CardTitle>
           <CardDescription>
-            Answers by marking state. Review the answer, compare against the mark scheme via Smart
-            Mark, then record the authoritative human mark.
+            Grouped by exam paper (one mark scheme in working memory), oldest-waiting learners
+            first — a deterministic order that never changes any mark or gate. Review the
+            answer, compare against the mark scheme via Smart Mark, then record the
+            authoritative human mark.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -507,53 +636,102 @@ export function TeacherReviewView({
             <p className="text-sm text-destructive">{queueError}</p>
           ) : !queue || (queueLoading && !detail) ? (
             <Skeleton className="h-32 w-full" />
-          ) : queue.length === 0 ? (
+          ) : queue.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No answers in this state right now. Learner submissions appear here as they practise.
             </p>
           ) : (
-            <ul className="space-y-2" aria-live="polite">
-              {queue.map((item) => (
-                <li key={item.answerId}>
-                  <button
-                    type="button"
-                    onClick={() => selectAnswer(item.answerId)}
-                    className={`w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted/60 ${
-                      detail?.answerId === item.answerId ? "border-primary bg-muted/40" : ""
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">
-                          {item.learnerDisplayName ?? "Unknown learner"}
+            <div className="space-y-4" aria-live="polite">
+              {queue.groups.map((group) => (
+                <div key={group.paperId} className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/50 px-3 py-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-semibold">
+                        {group.paperTitle ?? group.paperCode ?? "Paper"}
+                      </span>
+                      {group.paperCode && (
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {group.paperCode}
                         </span>
+                      )}
+                      {group.sessionLabel && (
                         <span className="text-xs text-muted-foreground">
-                          {item.questionExternalRef ?? "question"} · part {item.partLabel} ·{" "}
-                          {item.partMarks} mark{item.partMarks === 1 ? "" : "s"}
+                          {group.sessionLabel}
                         </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {item.marksAwarded != null && (
-                          <span className="text-xs text-muted-foreground">
-                            {item.marksAwarded}/{item.partMarks}
-                          </span>
-                        )}
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                            stateBadgeClass[item.markingState] ?? ""
-                          }`}
-                        >
-                          {humanizeCode(item.markingState)}
-                        </span>
-                      </div>
+                      )}
                     </div>
-                    <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {item.answerText || "(blank answer)"}
-                    </p>
-                  </button>
-                </li>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">{group.count} in this state</Badge>
+                      {group.oldestWaitingHours != null && (
+                        <span className="text-xs text-muted-foreground">
+                          oldest waited {group.oldestWaitingHours}h
+                        </span>
+                      )}
+                      {queueState === "PENDING" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => runBatchForGroup(group.paperId)}
+                          disabled={actionBusy !== null}
+                        >
+                          <Sparkles className="size-4" aria-hidden="true" />
+                          {actionBusy === "batch"
+                            ? "Running…"
+                            : `Smart Mark ${Math.min(group.count, 50)}`}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <ul className="space-y-2">
+                    {queue.items
+                      .filter((i) => i.paperId === group.paperId)
+                      .map((item) => (
+                        <li key={item.answer.answerId}>
+                          <button
+                            type="button"
+                            onClick={() => selectAnswer(item.answer.answerId)}
+                            className={`w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted/60 ${
+                              detail?.answerId === item.answer.answerId
+                                ? "border-primary bg-muted/40"
+                                : ""
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">
+                                  {item.answer.learnerDisplayName ?? "Unknown learner"}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {item.answer.questionExternalRef ?? "question"} · part{" "}
+                                  {item.answer.partLabel} · {item.answer.partMarks} mark
+                                  {item.answer.partMarks === 1 ? "" : "s"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {item.answer.marksAwarded != null && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {item.answer.marksAwarded}/{item.answer.partMarks}
+                                  </span>
+                                )}
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                    stateBadgeClass[item.answer.markingState] ?? ""
+                                  }`}
+                                >
+                                  {humanizeCode(item.answer.markingState)}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="mt-1 truncate text-xs text-muted-foreground">
+                              {item.answer.answerText || "(blank answer)"}
+                            </p>
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
 
           {detailError && <p className="text-sm text-destructive">{detailError}</p>}
@@ -734,16 +912,26 @@ export function TeacherReviewView({
                   </div>
                   <Button
                     size="sm"
-                    onClick={() => submitHumanMark(detail.answerId, detail.partMarks)}
+                    onClick={() =>
+                      submitHumanMarkAndNext(detail.answerId, detail.partMarks)
+                    }
                     disabled={actionBusy !== null}
                   >
                     <ClipboardCheck className="size-4" aria-hidden="true" />
-                    {actionBusy === "human" ? "Recording…" : "Record mark"}
+                    {actionBusy === "human"
+                      ? "Recording…"
+                      : queue?.items.find(
+                            (i) => i.answer.answerId === detail.answerId,
+                          )?.nextAnswerId
+                        ? "Record & next"
+                        : "Record mark"}
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   First human mark fires the evidence contract once (BKT/fluency react); later
-                  marks are overrides that never re-fire evidence.
+                  marks are overrides that never re-fire evidence. “Record &amp; next” follows
+                  the deterministic queue order: one paper group at a time, oldest-waiting
+                  learners first.
                 </p>
               </div>
             </div>

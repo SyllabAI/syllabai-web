@@ -33,8 +33,12 @@ import type {
   StructuredAttemptResultView,
   SubjectView,
   TeacherEnrichedReviewQueueView,
+  TeacherEnrichedReviewQueueViewV3,
   TeacherFindingView,
   TeacherLearnerView,
+  MarkingQueueView,
+  MarkingThroughputView,
+  SmartMarkBatchView,
   TeacherPaperReviewView,
   TeacherPaperSummary,
   TeacherReviewQueueView,
@@ -252,6 +256,21 @@ export const api = {
   markingQueue: (state: string) =>
     request<AnswerMarkingView[]>(`/api/v1/teacher/marking/answers?state=${state}`),
 
+  /** sprint-2 §6/§7: the deterministic paper-grouped queue with mark→next links */
+  markingQueueV2: (state: string) =>
+    request<MarkingQueueView>(`/api/v1/teacher/marking/queue-v2?state=${state}`),
+
+  /** sprint-2 §6: throughput metrics — counts of what happened */
+  markingThroughput: () =>
+    request<MarkingThroughputView>("/api/v1/teacher/marking/throughput"),
+
+  /** sprint-2 §6: bounded Smart Mark batch (partial success preserved) */
+  smartMarkBatch: (answerIds: string[]) =>
+    request<SmartMarkBatchView>("/api/v1/teacher/marking/smart-mark-batch", {
+      method: "POST",
+      body: JSON.stringify({ answerIds }),
+    }),
+
   markingAnswer: (answerId: string) =>
     request<AnswerMarkingView>(`/api/v1/teacher/marking/answers/${answerId}`),
 
@@ -387,6 +406,12 @@ export const api = {
   contentReviewQueueV2: () =>
     request<TeacherEnrichedReviewQueueView>(
       "/api/v1/teacher/content/review-queue-v2",
+    ),
+
+  /** sprint-2 §7: queue intelligence — §7 signals + rank reasons */
+  contentReviewQueueV3: () =>
+    request<TeacherEnrichedReviewQueueViewV3>(
+      "/api/v1/teacher/content/review-queue-v3",
     ),
 
   validateAllForPaper: (paperId: string, force = false) =>

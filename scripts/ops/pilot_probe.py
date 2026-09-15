@@ -21,6 +21,10 @@ Checks (the pilot runbook §4 minimum):
                   topic-mapped questions — "zero served" is no longer the goal)
   teacher         if PILOT_TEACHER_* secrets exist: concept-graph read (edges > 0);
                   weekly/manual runs also re-verify idempotent activation (0 created)
+  class-analytics  sprint-2 §2: class overview policy + honesty (unmeasured = null)
+  marking-lane     sprint-2 §6/§7: the deterministic paper-grouped marking queue
+                  (mark→next chain, state honesty), throughput counts and the
+                  review-queue-v3 rank reasons — read-only
   kappa           structured-assessment κ status — N/A until T-C04 content ships
 
 The weekly schedule adds the operator reminders (evidence export, κ, feedback
@@ -345,6 +349,38 @@ def check_teacher(ch1: dict | None) -> None:
     else:
         record("class-analytics", False, f"overview → {status} {err}",
                "class read model failing")
+
+    # sprint-2 §6/§7: the marking-throughput lane + queue intelligence
+    # (deterministic paper-grouped queue with the mark→next chain, honest
+    # throughput counts, rank reasons on the v3 review queue — read-only)
+    status, queue, err = http("GET",
+                              f"{BACKEND}/api/v1/teacher/marking/queue-v2?state=PENDING",
+                              headers=auth)
+    lane_ok, lane_note = False, f"queue-v2 → {status} {err or ''}"
+    if status == 200 and isinstance(queue, dict):
+        items = queue.get("items") or []
+        groups = queue.get("groups") or []
+        chain_ok = all(
+            (item.get("nextAnswerId") == (items[i + 1]["answer"]["answerId"]
+                                          if i + 1 < len(items) else None))
+            for i, item in enumerate(items))
+        states_ok = all(i["answer"].get("markingState") == "PENDING" for i in items)
+        s_tp, tp, _ = http("GET", f"{BACKEND}/api/v1/teacher/marking/throughput",
+                           headers=auth)
+        s_v3, v3, _ = http("GET", f"{BACKEND}/api/v1/teacher/content/review-queue-v3",
+                           headers=auth)
+        tp_ok = (s_tp == 200 and isinstance(tp, dict)
+                 and all(k in (tp.get("answersByState") or {})
+                         for k in ("PENDING", "SMART_MARKED", "HUMAN_MARKED", "OVERRIDDEN")))
+        v3_ok = (s_v3 == 200 and isinstance(v3, dict)
+                 and all(isinstance(p.get("rankReasons"), list)
+                         for p in (v3.get("papers") or [])[:50]))
+        lane_ok = chain_ok and states_ok and tp_ok and v3_ok
+        lane_note = (f"queue-v2 → {status} ({len(items)} pending / {len(groups)} groups, "
+                     f"chain {'OK' if chain_ok else 'BROKEN'}), throughput → {s_tp}, "
+                     f"review-v3 → {s_v3} ({len(v3.get('papers') or []) if isinstance(v3, dict) else 0} papers)")
+    record("marking-lane", lane_ok, lane_note,
+           "marking throughput lane failing: ordering/chain/throughput/queue-v3 regression")
 
     # activation idempotency re-verification — weekly/manual only
     if EVENT_NAME == "schedule" and EVENT_SCHEDULE not in ("", "33 9 * * 0"):
