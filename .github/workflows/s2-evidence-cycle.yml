@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: "precheck | dump | smartmark | mark | after"
+        description: "precheck | dump | smartmark | mark | after | final"
         required: true
         default: "dump"
       manifest_sha:
@@ -126,4 +126,23 @@ jobs:
         with:
           name: s2-cycle-after
           path: s2-cycle-after.json
+          if-no-files-found: ignore
+
+      - name: Final probe (smart-lesson response after marked evidence)
+        if: inputs.phase == 'final'
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          MONITOR_EMAIL: ${{ secrets.PILOT_MONITOR_EMAIL }}
+          MONITOR_PASSWORD: ${{ secrets.PILOT_MONITOR_PASSWORD }}
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          RESULT_PATH: s2-cycle-final.json
+        run: python3 scripts/ops/s2_cycle_final.py
+
+      - name: Upload final probe
+        if: always() && inputs.phase == 'final'
+        uses: actions/upload-artifact@v4
+        with:
+          name: s2-cycle-final
+          path: s2-cycle-final.json
           if-no-files-found: ignore
