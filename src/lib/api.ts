@@ -12,6 +12,8 @@
  */
 import type {
   AttemptHistoryView,
+  ClaAnswerView,
+  ClaMode,
   TeacherAuditRowView,
   AuthResponse,
   AnswerMarkingView,
@@ -248,6 +250,22 @@ export const api = {
     request<TutorAnswerView>("/api/v1/tutor/ask", {
       method: "POST",
       body: JSON.stringify({ question }),
+    }),
+
+  // CLA (contract §2–§7): the context + mode are explicit and server-resolved
+  // (fail-closed 404 on anything unvalidated/foreign); CHECK pre-attempt is a
+  // deterministic 409 attempt_required the UI renders as guidance.
+  claAsk: (body: {
+    kind: "KG_TOPIC" | "PAST_PAPER_QUESTION";
+    rootId?: string;
+    topicNodeId?: string;
+    questionId?: string;
+    mode: ClaMode;
+    question: string;
+  }) =>
+    request<ClaAnswerView>("/api/v1/learners/me/cla/ask", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 
   // ── T-029 teacher review surface (route security: TEACHER or ADMIN on the

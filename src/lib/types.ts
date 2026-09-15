@@ -992,3 +992,68 @@ export interface ClassTopicDrillDown {
     difficulty: number;
   }[];
 }
+
+// ── Contextual Learning Assistant (CLA contract §1–§7; core ClaAnswerView) ──
+
+/** The four explicit response modes (contract §3). HINT/CHECK are attempt-aware. */
+export type ClaMode = "EXPLAIN" | "SUMMARIZE" | "HINT" | "CHECK";
+
+/** Resolved-context summary — exactly what the SERVER resolved, never client-asserted. */
+export interface ClaContextView {
+  kind: "KG_TOPIC" | "PAST_PAPER_QUESTION";
+  reference: string;
+  topicNodeId: string | null;
+  rootId: string | null;
+  subjectCode: string;
+  topicCode: string;
+  topicTitle: string;
+  curriculumVersion: string;
+  curriculumBoard: string | null;
+  curriculumQualification: string | null;
+  validationState: string;
+  mode: ClaMode;
+  questionStem: string | null;
+  questionCommandWord: string | null;
+  questionMarks: number;
+  paperCode: string | null;
+  attempted: boolean | null;
+}
+
+/** Citation mirror of the Tutor citation (resolved, verbatim label + deep link). */
+export interface ClaCitation {
+  index: number;
+  label: string;
+  sourceType: string;
+  documentId: string | null;
+  page: number | null;
+  nodeId: string | null;
+  deepLink: string | null;
+}
+
+/** Audit trace of one read-only tool invocation (contract §4.4 — no output text). */
+export interface ClaToolTraceView {
+  tool: string;
+  args: string;
+  resultSize: number;
+  latencyMs: number;
+}
+
+export interface ClaTopicAnchorView {
+  code: string;
+  title: string;
+  matchScore: number;
+}
+
+/** POST /api/v1/learners/me/cla/ask response. */
+export interface ClaAnswerView {
+  answer: string;
+  citations: ClaCitation[];
+  context: ClaContextView;
+  topics: ClaTopicAnchorView[];
+  evidenceCount: number;
+  model: string | null;
+  provider: string;
+  refused: boolean;
+  latencyMs: number;
+  tools: ClaToolTraceView[];
+}

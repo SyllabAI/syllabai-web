@@ -11,6 +11,7 @@ import { PracticeView } from "@/components/syllabai/PracticeView";
 import { SmartLessonView } from "@/components/syllabai/SmartLessonView";
 import { StateView } from "@/components/syllabai/StateView";
 import { TutorChatView, type TutorChatMessage } from "@/components/syllabai/TutorChatView";
+import { ClaAssistantView, type ClaChatMessage } from "@/components/syllabai/ClaAssistantView";
 import { clearSession, api, currentUser, getToken, setSession } from "@/lib/api";
 import type {
   AttemptHistoryView,
@@ -31,6 +32,7 @@ import {
   LayoutDashboard,
   LineChart,
   MessagesSquare,
+  Sparkles,
   Users,
 } from "lucide-react";
 
@@ -59,6 +61,9 @@ export default function SyllabAiWorkbench() {
   // Tutor transcript lives here (not inside the tab) so it survives tab switches;
   // server-side sessions arrive with the Spec §22 tutor/sessions endpoints.
   const [tutorMessages, setTutorMessages] = useState<TutorChatMessage[]>([]);
+  // CLA transcript — same lifted-state rationale as the tutor transcript (tab
+  // switches must not erase the conversation).
+  const [claMessages, setClaMessages] = useState<ClaChatMessage[]>([]);
   // T-033: next-best-action read model (nba-rules/v1) — refreshed together with
   // state + graph because attempts change the evidence it ranks from.
   const [recommendations, setRecommendations] = useState<NextBestActionsView | null>(null);
@@ -87,6 +92,17 @@ export default function SyllabAiWorkbench() {
     () => auth?.user.roles.some((r) => r === "TEACHER" || r === "ADMIN") ?? false,
     [auth],
   );
+  // CLA context picker: the subject's TOPIC-level curriculum nodes from the
+  // loaded graph. The server still resolves every pick fail-closed
+  // (VALIDATED-only, subject-isolated) — this list is an affordance, never
+  // the authorization.
+  const assistantTopics = useMemo(
+    () =>
+      (graph?.nodes ?? [])
+        .filter((n) => n.type === "TOPIC")
+        .map((n) => ({ id: n.id, code: n.code, title: n.title })),
+    [graph],
+  );
 
   // Restore session on first paint (token in localStorage, v0 pilot storage).
   useEffect(() => {
@@ -112,6 +128,7 @@ export default function SyllabAiWorkbench() {
     setHistory(null);
     setTutorDraft(null);
     setTutorMessages([]);
+    setClaMessages([]);
     setRecommendations(null);
     setRecommendationsError(null);
     setStateLoading(false);
@@ -307,7 +324,7 @@ export default function SyllabAiWorkbench() {
       <main className="mx-auto w-full max-w-5xl flex-1 scroll-mt-16 px-4 py-6">
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList
-            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-9" : "grid-cols-8"}`}
+            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-10" : "grid-cols-9"}`}
           >
             <TabsTrigger value="dashboard" className="gap-1.5">
               <LayoutDashboard className="size-4" aria-hidden="true" />
@@ -332,6 +349,10 @@ export default function SyllabAiWorkbench() {
             <TabsTrigger value="tutor" className="gap-1.5">
               <MessagesSquare className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">Tutor</span>
+            </TabsTrigger>
+            <TabsTrigger value="assistant" className="gap-1.5">
+              <Sparkles className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Assistant</span>
             </TabsTrigger>
             <TabsTrigger value="map" className="gap-1.5">
               <Brain className="size-4" aria-hidden="true" />
@@ -405,6 +426,14 @@ export default function SyllabAiWorkbench() {
               setMessages={setTutorMessages}
               draft={tutorDraft}
               onDraftConsumed={() => setTutorDraft(null)}
+            />
+          </TabsContent>
+          <TabsContent value="assistant">
+            <ClaAssistantView
+              messages={claMessages}
+              setMessages={setClaMessages}
+              rootId={rootId}
+              topicOptions={assistantTopics}
             />
           </TabsContent>
           <TabsContent value="map">
