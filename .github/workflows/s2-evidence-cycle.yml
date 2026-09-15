@@ -1,0 +1,70 @@
+name: S2 Evidence Cycle
+
+# Sprint-2 evidence-accumulation cycle — the production marking workflow.
+# Phase "dump": read-only working set for the teacher's offline marking
+# review (queue-v2 + per-paper mark schemes). The subsequent phase
+# (marking executor) is a SEPARATE workflow_dispatch with an explicit
+# marks manifest; nothing here mutates learner data.
+# Prints counts only, never secrets; JSON snapshot uploaded as an artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: "dump (read-only working set) | mark (apply the marks manifest)"
+        required: true
+        default: "dump"
+      manifest_sha:
+        description: "mark phase: the sha256 of the committed marks manifest being applied"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s2-evidence-cycle
+  cancel-in-progress: false
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dump the marking working set (read-only)
+        if: inputs.phase == 'dump'
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          DUMP_PATH: s2-cycle-dump.json
+        run: python3 scripts/ops/s2_cycle_dump.py
+
+      - name: Upload dump snapshot
+        if: always() && inputs.phase == 'dump'
+        uses: actions/upload-artifact@v4
+        with:
+          name: s2-cycle-dump
+          path: s2-cycle-dump.json
+          if-no-files-found: ignore
+
+      - name: Apply the teacher's marks manifest (human marks)
+        if: inputs.phase == 'mark'
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          MANIFEST_PATH: scripts/ops/s2_marks_manifest.json
+          MANIFEST_SHA_INPUT: ${{ inputs.manifest_sha }}
+          RESULT_PATH: s2-cycle-mark-result.json
+        run: python3 scripts/ops/s2_cycle_mark.py
+
+      - name: Upload marking result
+        if: always() && inputs.phase == 'mark'
+        uses: actions/upload-artifact@v4
+        with:
+          name: s2-cycle-mark-result
+          path: s2-cycle-mark-result.json
+          if-no-files-found: ignore
