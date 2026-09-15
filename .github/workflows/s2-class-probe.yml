@@ -1,0 +1,42 @@
+name: S2 Class Probe
+
+# Sprint-2 §2-§5 production verification — the teacher class-intelligence
+# read model (overview / learners / drill-down) against production, with the
+# SAME pilot teacher secrets the census, monitor and V20 battery use.
+# Read-only GETs; prints counts only, never secrets; JSON snapshot uploaded
+# as a workflow artifact. Honesty invariants verified live: unmeasured topics
+# and learners carry null mastery, learner attention order holds, the
+# prerequisite chain never fabricates values.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s2-class-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe class intelligence against production
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          PROBE_PATH: s2-class-probe.json
+        run: python3 scripts/ops/s2_class_probe.py
+
+      - name: Upload probe snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s2-class-probe
+          path: s2-class-probe.json
+          if-no-files-found: ignore
