@@ -51,6 +51,7 @@ import type {
   ClassOverviewView,
   ClassTopicDrillDown,
   TestPreviewView,
+  WeaknessOptionsView,
   TutorAnswerView,
 } from "./types";
 
@@ -330,6 +331,12 @@ export const api = {
     if (includeAnswers) params.set("includeAnswers", "true");
     return request<TestPreviewView>(`/api/v1/teacher/tests/preview?${params}`);
   },
+
+  /** sprint-2 §10: class-weakness targeting options (read-only class evidence) */
+  testBuilderWeaknessOptions: (rootId: string) =>
+    request<WeaknessOptionsView>(
+      `/api/v1/teacher/tests/weakness-options?rootId=${encodeURIComponent(rootId)}`,
+    ),
 
   // ── Teacher class intelligence (sprint 2 §2–§5; route security: TEACHER or
   // ADMIN; read-only aggregations over the existing learner-model tables) ──

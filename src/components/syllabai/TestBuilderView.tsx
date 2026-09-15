@@ -13,9 +13,15 @@ import {
   ClipboardList,
   FileText,
   Printer,
+  Target,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { NodeView, SubjectView, TestPreviewView } from "@/lib/types";
+import type {
+  NodeView,
+  SubjectView,
+  TestPreviewView,
+  WeaknessOptionsView,
+} from "@/lib/types";
 
 /**
  * P9 Test Builder (smallest useful version): pick a subject and curriculum
@@ -43,6 +49,9 @@ export function TestBuilderView({
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(true);
+  const [weakness, setWeakness] = useState<WeaknessOptionsView | null>(null);
+  const [weaknessError, setWeaknessError] = useState<string | null>(null);
+  const [showGaps, setShowGaps] = useState(false);
 
   useEffect(() => {
     if (!selectedRootId) return;
@@ -57,6 +66,8 @@ export function TestBuilderView({
     setTree(null);
     setSelected(new Set());
     setPreview(null);
+    setWeakness(null);
+    setWeaknessError(null);
     (async () => {
       try {
         const t = await api.knowledgeTree(rootId, false);
@@ -66,6 +77,13 @@ export function TestBuilderView({
           setTreeError(err instanceof Error ? err.message : "Failed to load curriculum tree");
       } finally {
         if (!cancelled) setTreeLoading(false);
+      }
+      try {
+        const w = await api.testBuilderWeaknessOptions(rootId);
+        if (!cancelled) setWeakness(w);
+      } catch {
+        // the weakness lane is enrichment — a failure never blocks manual assembly
+        if (!cancelled) setWeaknessError("Class weakness options unavailable");
       }
     })();
     return () => {
@@ -96,6 +114,28 @@ export function TestBuilderView({
       return next;
     });
   }
+
+  /** §10: add/remove every weak class area in one action (deterministic order kept) */
+  function toggleAllWeak() {
+    if (!weakness || weakness.weakTopics.length === 0) return;
+    setPreview(null);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = weakness.weakTopics.every((w) => next.has(w.topicNodeId));
+      if (allSelected) {
+        weakness.weakTopics.forEach((w) => next.delete(w.topicNodeId));
+      } else {
+        weakness.weakTopics.forEach((w) => next.add(w.topicNodeId));
+      }
+      return next;
+    });
+  }
+
+  const reasonLabels: Record<string, string> = {
+    LOW_MEAN_MASTERY: "low class mastery",
+    ACTIVE_MISCONCEPTION_PRESENT: "active misconceptions",
+    BLOCKED_BY_WEAK_PREREQUISITE: "blocked by weak prerequisite",
+  };
 
   async function build() {
     if (!rootId || selected.size === 0) return;
@@ -218,6 +258,112 @@ export function TestBuilderView({
               <AlertDescription>{treeError}</AlertDescription>
             </Alert>
           )}
+
+          {weakness && weakness.weakTopics.length > 0 && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                  <Target className="size-4 text-primary" aria-hidden="true" />
+                  Target class weaknesses
+                </p>
+                <Button variant="outline" size="sm" onClick={toggleAllWeak}>
+                  {weakness.weakTopics.every((w) => selected.has(w.topicNodeId))
+                    ? "Clear weak areas"
+                    : "Select all weak areas"}
+                </Button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Derived from class evidence ({weakness.learnersWithEvidence} learner
+                {weakness.learnersWithEvidence === 1 ? "" : "s"} with evidence) — reasons are
+                transparent, no composite score.
+              </p>
+              <div className="mt-2 space-y-1.5">
+                {weakness.weakTopics.map((w) => (
+                  <label
+                    key={w.topicNodeId}
+                    className="flex cursor-pointer items-start gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/50"
+                  >
+                    <Checkbox
+                      checked={selected.has(w.topicNodeId)}
+                      onCheckedChange={() => toggle(w.topicNodeId)}
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0">
+                      <span className="font-mono text-xs text-muted-foreground">{w.code}</span>{" "}
+                      {w.title}{" "}
+                      {w.reasons.map((r) => (
+                        <Badge key={r} variant="outline" className="ml-1 h-4 px-1 text-[10px]">
+                          {reasonLabels[r] ?? r}
+                        </Badge>
+                      ))}
+                      <span className="block text-xs text-muted-foreground">
+                        {w.learnersMeasured > 0
+                          ? `mean mastery ${
+                              w.meanMastery === null ? "—" : w.meanMastery.toFixed(2)
+                            } over ${w.learnersMeasured} measured`
+                            : "unmeasured mastery"}
+                        {w.learnersWithActiveMisconception > 0 &&
+                          ` · ${w.learnersWithActiveMisconception} learner${
+                            w.learnersWithActiveMisconception === 1 ? "" : "s"
+                          } with active misconceptions`}
+                        {w.evidenceBackedAttempts > 0 && ` · ${w.evidenceBackedAttempts} attempts`}
+                        {` · ${w.servableQuestions} validated question${
+                          w.servableQuestions === 1 ? "" : "s"
+                        }`}
+                        {w.blockedByPrerequisiteCodes.length > 0 &&
+                          ` · needs ${w.blockedByPrerequisiteCodes.join(", ")}`}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {weakness.coverageGaps.length > 0 && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    onClick={() => setShowGaps((v) => !v)}
+                  >
+                    {showGaps ? "Hide" : "Show"} {weakness.coverageGaps.length} unmeasured topic
+                    {weakness.coverageGaps.length === 1 ? "" : "s"} with class activity
+                    (coverage gaps — not claimed weak)
+                  </button>
+                  {showGaps && (
+                    <div className="mt-1.5 space-y-1">
+                      {weakness.coverageGaps.map((g) => (
+                        <label
+                          key={g.topicNodeId}
+                          className="flex cursor-pointer items-start gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/50"
+                        >
+                          <Checkbox
+                            checked={selected.has(g.topicNodeId)}
+                            onCheckedChange={() => toggle(g.topicNodeId)}
+                            className="mt-0.5"
+                          />
+                          <span className="min-w-0">
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {g.code}
+                            </span>{" "}
+                            {g.title}{" "}
+                            <span className="text-xs text-muted-foreground">
+                              · {g.tutorEngagements} tutor ask
+                              {g.tutorEngagements === 1 ? "" : "s"} · {g.servableQuestions} validated
+                              question{g.servableQuestions === 1 ? "" : "s"} · no measured mastery
+                              yet
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {weaknessError && (
+            <p className="text-xs text-muted-foreground">{weaknessError}</p>
+          )}
+
           {tree && (
             <div>
               <p className="mb-2 text-sm text-muted-foreground">

@@ -791,6 +791,47 @@ export interface TestTopicCoverage {
   servableQuestions: number;
 }
 
+// ── sprint-2 §10: class-weakness targeting (mirrors core
+// TestBuilderService.WeaknessOptionsView) ──
+
+/** one weak class area — explicit reasons + raw aggregates, no synthetic score */
+export interface WeakTopicOption {
+  topicNodeId: string;
+  code: string;
+  title: string;
+  reasons: string[]; // LOW_MEAN_MASTERY | ACTIVE_MISCONCEPTION_PRESENT | BLOCKED_BY_WEAK_PREREQUISITE
+  learnersMeasured: number;
+  meanMastery: number | null;
+  masteryBand: string;
+  learnersWithActiveMisconception: number;
+  activeMisconceptionSignals: number;
+  evidenceBackedAttempts: number;
+  tutorEngagements: number;
+  dueReviews: number;
+  servableQuestions: number;
+  blockedByPrerequisiteCodes: string[];
+}
+
+/** an unmeasured topic with servable content + class activity — honest gap, never weak */
+export interface CoverageGapView {
+  topicNodeId: string;
+  code: string;
+  title: string;
+  servableQuestions: number;
+  evidenceBackedAttempts: number;
+  tutorEngagements: number;
+}
+
+export interface WeaknessOptionsView {
+  rootId: string;
+  policy: string;
+  enrolledLearners: number;
+  learnersWithEvidence: number;
+  weakTopics: WeakTopicOption[];
+  coverageGaps: CoverageGapView[];
+  selectionHint: string;
+}
+
 export interface TestQuestionView {
   id: string;
   type: string;

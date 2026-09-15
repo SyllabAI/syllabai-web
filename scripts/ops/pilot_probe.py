@@ -25,6 +25,10 @@ Checks (the pilot runbook §4 minimum):
   marking-lane     sprint-2 §6/§7: the deterministic paper-grouped marking queue
                   (mark→next chain, state honesty), throughput counts and the
                   review-queue-v3 rank reasons — read-only
+  smart-lesson     sprint-2 §8: Smart Lesson v2 policy + explainability shape
+                  (action with reason code + evidence trace) on a servable topic
+  weakness-targeting  sprint-2 §10: class-weakness options (policy id, explicit
+                  known reasons only, no synthetic score field) — read-only
   kappa           structured-assessment κ status — N/A until T-C04 content ships
 
 The weekly schedule adds the operator reminders (evidence export, κ, feedback
@@ -244,9 +248,37 @@ def check_learner() -> None:
                                 f"{BACKEND}/api/v1/learners/me/recommendations?rootId={root}",
                                 headers=auth, timeout=120)
         policy = rec.get("policy") if isinstance(rec, dict) else None
-        record("learner-nba", status == 200 and policy == "nba-rules/v1.2",
+        record("learner-nba", status == 200 and policy == "nba-rules/v1.3",
                f"recommendations → {status}, policy {policy}",
                "recommendation engine failing or policy regressed")
+
+        # sprint-2 §8: Smart Lesson v2 — the explainable topic-scoped action.
+        # The probe learner is fresh, so the honest cold-start action on any
+        # servable topic is INSUFFICIENT_COVERAGE (or TUTOR_ENGAGED/UNCOVERED
+        # dynamics on other topics); the invariants checked: v2 policy,
+        # an action with a reason code, an evidence trace, and a target node.
+        topic_id = next((q.get("primaryTopicNodeId") for q in qs
+                         if q.get("primaryTopicNodeId")), None)
+        if topic_id:
+            status, lesson, err = http(
+                "GET",
+                f"{BACKEND}/api/v1/learners/me/smart-lesson"
+                f"?rootId={root}&topicNodeId={topic_id}",
+                headers=auth, timeout=120)
+            ok = (status == 200 and isinstance(lesson, dict)
+                  and lesson.get("policy") == "smart-lesson/v2"
+                  and isinstance(lesson.get("action"), dict)
+                  and bool(lesson["action"].get("reasonCode"))
+                  and bool(lesson["action"].get("targetNodeId"))
+                  and isinstance(lesson.get("evidence"), list)
+                  and len(lesson["evidence"]) > 0)
+            record("smart-lesson", ok,
+                   f"smart-lesson → {status}, policy {lesson.get('policy') if isinstance(lesson, dict) else None}, "
+                   f"action {lesson.get('action', {}).get('reasonCode') if isinstance(lesson, dict) else None}",
+                   "smart lesson failing, policy regressed, or the evidence trace missing")
+        else:
+            record("smart-lesson", True,
+                   "no topic-mapped servable question on the serving subject — skipped")
 
     # deployed-backend freshness (session-57 defect fixes)
     status, _, _ = http("GET", f"{BACKEND}/api/v1/questions?rootId={UNKNOWN_ROOT}",
@@ -381,6 +413,33 @@ def check_teacher(ch1: dict | None) -> None:
                      f"review-v3 → {s_v3} ({len(v3.get('papers') or []) if isinstance(v3, dict) else 0} papers)")
     record("marking-lane", lane_ok, lane_note,
            "marking throughput lane failing: ordering/chain/throughput/queue-v3 regression")
+
+    # sprint-2 §10: class-weakness targeting options — the teacher-side entry
+    # point of the intervention loop (read-only). Invariants: the policy id,
+    # every weak option carries at least one KNOWN explicit reason (no
+    # synthetic score field), and unmeasured topics are never claimed weak
+    # without a misconception/blocking reason.
+    status, weakness, err = http(
+        "GET", f"{BACKEND}/api/v1/teacher/tests/weakness-options?rootId={root}",
+        headers=auth)
+    known_reasons = {"LOW_MEAN_MASTERY", "ACTIVE_MISCONCEPTION_PRESENT",
+                     "BLOCKED_BY_WEAK_PREREQUISITE"}
+    if status == 200 and isinstance(weakness, dict):
+        weak = weakness.get("weakTopics") or []
+        reasons_ok = all(
+            isinstance(w.get("reasons"), list) and w["reasons"]
+            and set(w["reasons"]) <= known_reasons
+            for w in weak)
+        no_score = "weaknessScore" not in json.dumps(weakness)
+        record("weakness-targeting",
+               weakness.get("policy") == "test-builder-weakness/v1"
+               and reasons_ok and no_score,
+               f"weakness-options → {status} ({len(weak)} weak, "
+               f"{len(weakness.get('coverageGaps') or [])} coverage gaps)",
+               "class-weakness targeting failing or exposing non-transparent reasons")
+    else:
+        record("weakness-targeting", False, f"weakness-options → {status} {err}",
+               "class-weakness targeting endpoint failing")
 
     # activation idempotency re-verification — weekly/manual only
     if EVENT_NAME == "schedule" and EVENT_SCHEDULE not in ("", "33 9 * * 0"):
