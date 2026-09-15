@@ -50,6 +50,23 @@ jobs:
           path: s2-cycle-dump.json
           if-no-files-found: ignore
 
+      - name: Smart Mark assist (per-group batches, provisional marks)
+        if: inputs.phase == 'smartmark'
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          RESULT_PATH: s2-smartmark-result.json
+        run: python3 scripts/ops/s2_cycle_smartmark.py
+
+      - name: Upload smart-mark result
+        if: always() && inputs.phase == 'smartmark'
+        uses: actions/upload-artifact@v4
+        with:
+          name: s2-smartmark-result
+          path: s2-smartmark-result.json
+          if-no-files-found: ignore
+
       - name: Read-only loop precheck (serving topics + weakness state)
         if: inputs.phase == 'precheck'
         env:
