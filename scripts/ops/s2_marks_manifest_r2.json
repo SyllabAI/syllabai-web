@@ -1,0 +1,124 @@
+{
+ "decisions": [
+  {
+   "answerId": "1879157e-911e-400d-b712-91d4a22fa38e",
+   "comment": "All four apparatus correctly identified (P beaker, Q filter funnel, R conical flask, S pipette) - matches the mark point in full.",
+   "marksAwarded": 4,
+   "perPointDecisions": {
+    "4433f6d9-496e-45cd-b9c6-b6d8065446db": 1
+   }
+  },
+  {
+   "answerId": "7e2a730b-1f6f-46d6-ba1f-f8ae5613ca38",
+   "comment": "'D red' is the correct final colour of litmus in dilute hydrochloric acid.",
+   "marksAwarded": 1,
+   "perPointDecisions": {
+    "bdd40a14-5be9-438e-95a2-c8adbe234898": 1
+   }
+  },
+  {
+   "answerId": "19444168-5dbd-4fb9-8e15-da24be85e1ee",
+   "comment": "'A blue' is the correct final colour of litmus in potassium hydroxide solution.",
+   "marksAwarded": 1,
+   "perPointDecisions": {
+    "88b87809-a600-43d2-a55b-df152eb9d741": 1
+   }
+  },
+  {
+   "answerId": "d776364d-55c5-4708-916e-36021f6037e4",
+   "comment": "'B neutralisation' is the correct reaction type between dilute sulfuric acid and sodium hydroxide.",
+   "marksAwarded": 1,
+   "perPointDecisions": {
+    "063eae03-6f02-45f5-a873-05d81ee3db60": 1
+   }
+  },
+  {
+   "answerId": "8652efe3-b946-40bb-ad66-f22184b0778f",
+   "comment": "No response submitted for the burette-reading part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "9d2af8e4-6809-49ec-9372-3a792ee7f0f3",
+   "comment": "Table completed with the correct readings (26.30, 1.75, 24.55 to the nearest 0.05 cm3) - all three mark points met.",
+   "marksAwarded": 3,
+   "perPointDecisions": {
+    "3ae20d46-dacb-4545-b40d-e799eda804e6": 1
+   }
+  },
+  {
+   "answerId": "668ffc27-6d02-4fed-b816-f646b5bebed0",
+   "comment": "Two valid reasons required; the response states all three acceptable reasons (concordant titres, identifying anomalies, obtaining a mean) - full credit.",
+   "marksAwarded": 2,
+   "perPointDecisions": {
+    "f65752d3-7993-4a56-995b-3bd49487ad09": 1
+   }
+  },
+  {
+   "answerId": "a8043f37-9a52-489c-847f-5d9b0084e91c",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "4ad326ef-17ad-4750-b508-eeb414e1de5f",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "494017c4-883e-4fe2-bcfb-8de3c2da2986",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "5a327f7c-bc1a-47ae-b21f-4c02087851e8",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "3037b198-154f-43c8-acc6-c2fed88948f1",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "e09fd703-4675-402c-8970-85df2fb91790",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "6ada2beb-f7c6-438e-8c4f-3ee7a6f18021",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "5f8653b7-1ffc-4e2e-ba79-a8d8e81854a9",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "f5c905f1-bb54-491a-9d57-20249637fb17",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "b0ce62bf-d1b9-415d-8b97-1dd760329c31",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  }
+ ],
+ "dumpCapturedAt": "2026-09-15T12:43:54Z",
+ "manifestSha256": "ad99c75be35ceecc9e75d20efbe37ef26a1a15bccafe13de48205d37c2858c4b",
+ "manifestVersion": "evidence-cycle-001-r2",
+ "preparedAt": "2026-09-15",
+ "preparedBy": "operator-directed teacher review (session-72)",
+ "reviewFinding": "Round 2 - the monitor learner's targeted-test attempts. Q1 and Q2 submitted the answer-key texts (controlled remediation input) and earn full credit per part; Q3 parts were left empty and earn 0. Per-point decisions carry the awarded flag for each in-scope mark point (kappa pairing data)."
+}

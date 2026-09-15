@@ -18,6 +18,10 @@ on:
         description: "mark phase: the sha256 of the committed marks manifest being applied"
         required: false
         default: ""
+      manifest_path:
+        description: "mark phase: path of the committed marks manifest"
+        required: false
+        default: "scripts/ops/s2_marks_manifest.json"
 
 permissions:
   contents: read
@@ -92,7 +96,7 @@ jobs:
           BACKEND_URL: https://syllabai-core.onrender.com
           TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
           TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
-          MANIFEST_PATH: scripts/ops/s2_marks_manifest.json
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
           MANIFEST_SHA_INPUT: ${{ inputs.manifest_sha }}
           RESULT_PATH: s2-cycle-mark-result.json
         run: python3 scripts/ops/s2_cycle_mark.py

@@ -101,6 +101,10 @@ def main() -> int:
             if bd:
                 points = {str(b.get("markPointId")): 0 for b in bd
                           if b.get("markPointId")}
+        # the manifest's explicit per-point decisions (reviewed judgment)
+        # override the breakdown-seeded defaults
+        if dec.get("perPointDecisions"):
+            points = {str(k): int(v) for k, v in dec["perPointDecisions"].items()}
         # 2. record the human mark (the authoritative step)
         s, mark = http("POST", f"/api/v1/teacher/marking/answers/{aid}/human-mark",
                        token=tok, payload={
