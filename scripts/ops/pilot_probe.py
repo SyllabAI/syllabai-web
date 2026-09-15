@@ -49,12 +49,15 @@ EVENT_SCHEDULE = os.environ.get("EVENT_SCHEDULE", "")
 RUN_URL = os.environ.get("RUN_URL", "")
 
 # Deployed-bundle markers, one per required pilot feature (session-58 verified
-# against a local production build of web main ca01d9e+):
+# against a local production build of web main ca01d9e+; sprint-2 §2 marker
+# c3fb24d+ — goes red until the Vercel git-author block is resolved and the
+# class-intelligence tab actually ships):
 BUNDLE_MARKERS = {
     "subject-scoped practice (ca01d9e)": "No validated questions in this subject yet",
     "v1.1 recommendation cards (d82d303)": "Fix misconception",
     "Teacher ConceptGraphView (47a3085)": "The official 4CH1 specification tree",
     "4CH1 concept graph UI": "Re-verify 4CH1 seed",
+    "teacher class intelligence (c3fb24d)": "Class intelligence",
 }
 
 UNKNOWN_ROOT = "00000000-0000-0000-0000-0000000000ff"
@@ -323,6 +326,25 @@ def check_teacher(ch1: dict | None) -> None:
     record("teacher", status == 200 and n > 0,
            f"concept-graph read → {status}, {n} edges",
            "teacher KG read model empty or failing")
+
+    # sprint-2 §2: the class-intelligence read model (policy class-analytics/v1;
+    # unmeasured topics must carry null mastery — honesty invariant, read-only)
+    status, overview, err = http("GET",
+                                 f"{BACKEND}/api/v1/teacher/class/overview?rootId={root}",
+                                 headers=auth)
+    if status == 200 and isinstance(overview, dict):
+        honest = all(
+            (t.get("learnersMeasured") or 0) > 0
+            or (t.get("meanMastery") is None and t.get("masteryBand") == "UNMEASURED")
+            for t in overview.get("topics", []))
+        record("class-analytics",
+               overview.get("policy") == "class-analytics/v1" and honest,
+               f"overview → {status}, enrolled={overview.get('enrolledLearners')}, "
+               f"measured {overview.get('measuredTopics')}/{overview.get('totalTopics')} topics",
+               "class read model failing or fabricating values on unmeasured topics")
+    else:
+        record("class-analytics", False, f"overview → {status} {err}",
+               "class read model failing")
 
     # activation idempotency re-verification — weekly/manual only
     if EVENT_NAME == "schedule" and EVENT_SCHEDULE not in ("", "33 9 * * 0"):
