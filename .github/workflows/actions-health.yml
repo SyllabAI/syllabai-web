@@ -1,0 +1,15 @@
+name: Actions Health
+
+# One-step canary for the 2026-09-15 org-wide Actions block (every workflow
+# failed instantly with zero steps while githubstatus reported operational —
+# the minutes/spending-limit signature). Dispatch this after restoring the
+# quota: green here means the runners are back. Diagnostic only.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "actions-ok"
