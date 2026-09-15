@@ -15,7 +15,10 @@ Checks (the pilot runbook §4 minimum):
   learner         monitor account: subjects + recommendations (policy pinned) + practice list
   scoping         unknown practice root is 404 (subject-scoped practice fix, f7adea7)
   missing-param   recommendations without rootId is 400 (5991187)
-  contamination   if 4CH1 is activated: its practice list must be EMPTY
+  contamination   if 4CH1 is activated: its practice list must not overlap any
+                  other subject's list (cross-subject leakage; since the 2026-09-14
+                  §10 topic mapping, 4CH1 legitimately SERVES its validated
+                  topic-mapped questions — "zero served" is no longer the goal)
   teacher         if PILOT_TEACHER_* secrets exist: concept-graph read (edges > 0);
                   weekly/manual runs also re-verify idempotent activation (0 created)
   kappa           structured-assessment κ status — N/A until T-C04 content ships
@@ -234,7 +237,7 @@ def check_learner() -> None:
                                 f"{BACKEND}/api/v1/learners/me/recommendations?rootId={root}",
                                 headers=auth, timeout=120)
         policy = rec.get("policy") if isinstance(rec, dict) else None
-        record("learner-nba", status == 200 and policy == "nba-rules/v1.1",
+        record("learner-nba", status == 200 and policy == "nba-rules/v1.2",
                f"recommendations → {status}, policy {policy}",
                "recommendation engine failing or policy regressed")
 
@@ -251,7 +254,12 @@ def check_learner() -> None:
            "deployed backend predates 5991187 (500 on missing param) — Render deploy "
            "of main required" if status == 500 else "")
 
-    # contamination: an activated 4CH1 must serve ZERO questions
+    # contamination: cross-subject leakage. Since the 2026-09-14 §10 topic
+    # mapping, 4CH1 legitimately SERVES its validated topic-mapped questions
+    # (33 at the time the premise changed), so "zero served" is no longer the
+    # invariant. The pilot-blocking defect this check exists for is a
+    # question appearing on TWO subject surfaces. Compare the 4CH1 list
+    # against every other rooted subject's list on the same account.
     ch1 = next((s for s in rooted if s.get("code") == "4CH1"), None)
     if ch1 is None:
         record("contamination", True,
@@ -261,10 +269,25 @@ def check_learner() -> None:
         status, qs, _ = http("GET",
                              f"{BACKEND}/api/v1/questions?rootId={ch1['knowledgeNodeId']}",
                              headers=auth)
-        served = len(qs) if isinstance(qs, list) else -1
-        record("contamination", status == 200 and served == 0,
-               f"4CH1 practice list → {status}, {served} questions served",
-               "WCH11 questions are leaking into the 4CH1 subject — pilot blocker")
+        if status != 200 or not isinstance(qs, list):
+            record("contamination", False,
+                   f"4CH1 practice list → {status}", "practice listing broken")
+        else:
+            served = {q.get("id") for q in qs}
+            overlap = {}
+            for s in (x for x in rooted if x.get("code") != "4CH1"):
+                st2, qs2, _ = http("GET",
+                                   f"{BACKEND}/api/v1/questions?rootId={s['knowledgeNodeId']}",
+                                   headers=auth)
+                if st2 == 200 and isinstance(qs2, list):
+                    for qid in served & {q.get("id") for q in qs2}:
+                        overlap[qid] = s.get("code")
+            record("contamination", not overlap,
+                   f"4CH1 practice list → 200, {len(served)} questions served; "
+                   f"cross-subject overlap with {len(rooted) - 1} other rooted "
+                   f"subject(s): {len(overlap)}",
+                   "questions are leaking across subject surfaces — pilot blocker"
+                   if overlap else "")
 
     # teacher surface (only when teacher credentials are provided)
     check_teacher(ch1)

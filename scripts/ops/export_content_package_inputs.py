@@ -74,8 +74,28 @@ def main() -> int:
     if not validated:
         print("FAIL no VALIDATED paper available")
         return 1
-    # deterministic choice: newest created fully-validated paper
-    positive = sorted(validated, key=lambda p: (p.get("createdAt") or ""), reverse=True)[0]
+    # deterministic choice: newest fully-validated paper that ALSO has an
+    # ingestion provenance record. Campaign-imported papers legitimately lack
+    # documents rows (the provenance endpoint fail-closes 404 for them); the
+    # export needs a provenanced positive case, so those are skipped — never
+    # manufactured around.
+    positive = None
+    skipped_unprovenanced = 0
+    for p in sorted(validated, key=lambda p: (p.get("createdAt") or ""), reverse=True):
+        pid_try = p["id"]
+        sp, prov_try = http("GET",
+                            f"/api/v1/teacher/content/exam-papers/{pid_try}/provenance",
+                            token=tok)
+        if sp == 200 and isinstance(prov_try, dict):
+            positive = p
+            break
+        skipped_unprovenanced += 1
+    if positive is None:
+        print("FAIL no VALIDATED paper with provenance available — refusing to "
+              "export an unprovenanced positive case")
+        return 1
+    if skipped_unprovenanced:
+        print(f"selection skipped {skipped_unprovenanced} unprovenanced validated paper(s)")
     pid = positive["id"]
     print(f"positive paper id={pid} title={positive.get('title')!r} code={positive.get('paperCode')!r}")
 
@@ -129,8 +149,10 @@ def main() -> int:
             "topicRows": topic_rows,
         },
         "notes": {
-            "selectionRule": "newest paper with validationState=VALIDATED and a "
-                             "complete marking contract (every version has a VALIDATED scheme)",
+            "selectionRule": "newest paper with validationState=VALIDATED, a complete "
+                             "marking contract (every version has a VALIDATED scheme) AND "
+                             "an ingestion provenance record (unprovenanced validated "
+                             "papers are skipped, never manufactured around)",
             "servingProof": "papers in this state are learner-servable (V20 battery B12)",
         },
     }

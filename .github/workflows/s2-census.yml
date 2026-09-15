@@ -1,0 +1,40 @@
+name: S2 Census
+
+# Sprint-2 §1 baseline census — read-only production snapshot (papers by
+# validation state, review queue, serving boundary, concept graph, roster,
+# marking queue). Runs on demand with the SAME pilot teacher secrets the
+# monitor and the V20 battery use. Prints counts only, never secrets; the
+# JSON snapshot is uploaded as a workflow artifact.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s2-census
+  cancel-in-progress: false
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run sprint-2 baseline census against production
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          CENSUS_PATH: s2-census.json
+        run: python3 scripts/ops/s2_census.py
+
+      - name: Upload census snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s2-census
+          path: s2-census.json
+          if-no-files-found: ignore
