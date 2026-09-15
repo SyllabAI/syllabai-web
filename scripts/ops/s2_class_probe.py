@@ -102,7 +102,7 @@ def main() -> int:
     snapshot["subject"] = {"code": root.get("code"), "rootId": root_id}
 
     # ── overview ──────────────────────────────────────────────────────
-    s, overview = http("GET", f"/api/v1/teacher/class/overview?rootId={root_id}")
+    s, overview = http("GET", f"/api/v1/teacher/class/overview?rootId={root_id}", token=tok)
     if s != 200:
         print(f"FAIL class overview status={s} (deploy current? policy exists since 45b5ec3)")
         return 1
@@ -141,7 +141,7 @@ def main() -> int:
           f"weakPrereq={len(weak)} recentAttempts={ra.get('recentAttempts')}")
 
     # ── learners ──────────────────────────────────────────────────────
-    s, learners = http("GET", f"/api/v1/teacher/class/learners?rootId={root_id}")
+    s, learners = http("GET", f"/api/v1/teacher/class/learners?rootId={root_id}", token=tok)
     if s != 200 or not isinstance(learners, list):
         print(f"FAIL class learners status={s}")
         return 1
@@ -178,7 +178,9 @@ def main() -> int:
         (t for t in topics if (t.get("servableQuestions") or 0) > 0), None)
     if target is not None:
         node_id = target["nodeId"]
-        s, dd = http("GET", f"/api/v1/teacher/class/topics/{node_id}/drill-down?rootId={root_id}")
+        s, dd = http("GET",
+                     f"/api/v1/teacher/class/topics/{node_id}/drill-down?rootId={root_id}",
+                     token=tok)
         if s != 200:
             failures.append(f"drill-down status={s}")
         else:
