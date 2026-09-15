@@ -104,3 +104,22 @@ jobs:
           name: s2-cycle-mark-result
           path: s2-cycle-mark-result.json
           if-no-files-found: ignore
+
+      - name: Closing leg (weakness -> targeted test -> attempts -> smart lesson)
+        if: inputs.phase == 'after'
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          MONITOR_EMAIL: ${{ secrets.PILOT_MONITOR_EMAIL }}
+          MONITOR_PASSWORD: ${{ secrets.PILOT_MONITOR_PASSWORD }}
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          RESULT_PATH: s2-cycle-after.json
+        run: python3 scripts/ops/s2_cycle_after.py
+
+      - name: Upload cycle result
+        if: always() && inputs.phase == 'after'
+        uses: actions/upload-artifact@v4
+        with:
+          name: s2-cycle-after
+          path: s2-cycle-after.json
+          if-no-files-found: ignore
