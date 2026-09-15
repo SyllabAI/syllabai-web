@@ -85,12 +85,18 @@ def main() -> int:
         return 1
     print("teacher login OK")
 
-    # subject root for the class surface (4CH1 first, else first subject)
-    s, subjects = http("GET", "/api/v1/subjects")
+    # subject root for the class surface (4CH1 first, else first rooted subject)
+    s, subjects = http("GET", "/api/v1/curriculum/subjects", token=tok)
     if s != 200 or not isinstance(subjects, list) or not subjects:
         print(f"FAIL subjects status={s}")
         return 1
-    root = next((sub for sub in subjects if "4CH1" in (sub.get("code") or "")), subjects[0])
+    root = next((sub for sub in subjects
+                 if sub.get("code") == "4CH1" and sub.get("knowledgeNodeId")), None)
+    if root is None:
+        root = next((sub for sub in subjects if sub.get("knowledgeNodeId")), None)
+    if root is None:
+        print("FAIL no rooted subject — the class surface needs a knowledgeNodeId")
+        return 1
     root_id = root["knowledgeNodeId"]
     print(f"subject: {root.get('code')} rootId={root_id}")
     snapshot["subject"] = {"code": root.get("code"), "rootId": root_id}
