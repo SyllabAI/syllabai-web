@@ -54,11 +54,12 @@ function formatDuration(ms: number): string {
 
 function OutcomeBadge({ item }: { item: AttemptHistoryItem }) {
   if (item.correct === null) {
-    // Structured attempts carry no pass/fail classification by design (a
-    // 1/2-mark answer is neither correct nor incorrect) — only a genuinely
-    // PENDING attempt "awaits marks". Once marks exist, the marks total and
-    // the marking-state chip below carry the facts; a pass/fail badge here
-    // would fabricate a classification the backend deliberately withholds.
+    // Structured attempts carry no attempt-level classification while any
+    // part is PENDING — only a genuinely pending attempt "awaits marks".
+    // Once marking settles the backend carries the settled classification
+    // (the same conservative full-marks rule the evidence event used), and
+    // the marks total + marking-state chip below keep carrying the detail
+    // (a 5/6 answer shows "not correct" AND 5/6 — both facts, no guess).
     if (item.markingState === "PENDING") {
       return (
         <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-400">
