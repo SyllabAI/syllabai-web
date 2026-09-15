@@ -4,21 +4,25 @@ SyllabAI frontend — **Next.js 16 / React 19 / TypeScript** Learner Workbench (
 
 > Part of the SyllabAI project · master pack: [`SyllabAI/syllabai`](https://github.com/SyllabAI/syllabai) · backend: [`SyllabAI/syllabai-core`](https://github.com/SyllabAI/syllabai-core)
 
-## What's implemented (Wave 0, T-005)
+## What's implemented
 
-A single-page **Learner Workbench** (`src/app/page.tsx`) with three views over the
-Java backend's `/api/v1`:
+The frontend has grown well beyond the original Wave 0 three-view workbench
+(T-005 — its full description is preserved in git history). Current state,
+2026-09-15, aligned with the V20 production reconciliation:
 
-- **Sign in / register** — JWT auth against the Spring Boot API (Bearer token; v0
-  keeps the token in localStorage, httpOnly-cookie hardening is tracked for Wave 4).
-- **Practice** — question player with options, confidence slider (1–5), self-doubt
-  flag and timed-mode checkbox (Paper B §3.5 / §16 telemetry inputs), immediate
-  feedback including misconception signals from the chosen distractor.
-- **Mastery map** — Edexcel IGCSE Chemistry knowledge tree (units → topics →
-  subtopics) with BKT mastery bars (effective mastery after Ebbinghaus decay),
-  known-misconception lists per topic and the prerequisite remediation chain.
-- **My state** — BKT skill table (stored vs effective mastery), BDT misconception
-  watch (probability, active flag) and the decay-driven review queue.
+- **Learner side** — sign in / register (JWT auth; token in localStorage,
+  httpOnly-cookie hardening tracked), Practice player with confidence slider /
+  self-doubt flag / timed-mode telemetry (Paper B §3.5 / §16), Mastery map
+  (BKT with Ebbinghaus decay + remediation chains), My state (BKT/BDT +
+  review queue), Dashboard, History, Next-best actions, Smart Lesson,
+  Tutor chat, Past Papers browser, Knowledge Graph view.
+- **Teacher side** — Teacher Review, Test Builder (marks UI), Teacher Content,
+  Class Intelligence and Concept Graph views.
+- **Ops & verification** — `scripts/ops/v20_battery.py` +
+  `.github/workflows/v20-verify.yml` (the V20 teacher-side production battery:
+  GREEN 55/55 at deployed core `26fec63`, run 34896406018), plus the pilot
+  monitor, s2 census/class/marking probes, content-export and Google Drive
+  sync workflows.
 
 Typed API client in `src/lib/api.ts` (mirrors the backend DTOs, Master Spec §22).
 
