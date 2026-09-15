@@ -1000,7 +1000,7 @@ export type ClaMode = "EXPLAIN" | "SUMMARIZE" | "HINT" | "CHECK";
 
 /** Resolved-context summary — exactly what the SERVER resolved, never client-asserted. */
 export interface ClaContextView {
-  kind: "KG_TOPIC" | "PAST_PAPER_QUESTION";
+  kind: "KG_TOPIC" | "PAST_PAPER_QUESTION" | "QUESTION_PART" | "SPECIFICATION_POINT";
   reference: string;
   topicNodeId: string | null;
   rootId: string | null;
@@ -1017,6 +1017,7 @@ export interface ClaContextView {
   questionMarks: number;
   paperCode: string | null;
   attempted: boolean | null;
+  partLabel: string | null;
 }
 
 /** Citation mirror of the Tutor citation (resolved, verbatim label + deep link). */

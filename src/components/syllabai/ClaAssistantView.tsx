@@ -142,14 +142,17 @@ function MetaRow({ result }: { result: ClaAnswerView }) {
         {result.context.topicTitle}
       </span>
       <span>
-        {result.context.kind} · {result.context.validationState}
+        {result.context.kind}
+        {result.context.partLabel ? ` (${result.context.partLabel})` : ""} ·{" "}
+        {result.context.validationState}
       </span>
       <span>evidence {result.evidenceCount}</span>
       <span>
         {result.model ?? "deterministic"} / {result.provider}
       </span>
       <span>{(result.latencyMs / 1000).toFixed(1)}s</span>
-      {result.context.kind === "PAST_PAPER_QUESTION" && (
+      {(result.context.kind === "PAST_PAPER_QUESTION" ||
+        result.context.kind === "QUESTION_PART") && (
         <span>
           attempted:{" "}
           <span className={result.context.attempted ? "text-foreground" : "text-amber-600"}>
@@ -175,9 +178,12 @@ export function ClaAssistantView({
   topicOptions: { id: string; code: string; title: string }[];
   defaultTopicNodeId?: string | null;
 }) {
-  const [contextKind, setContextKind] = useState<"KG_TOPIC" | "PAST_PAPER_QUESTION">("KG_TOPIC");
+  const [contextKind, setContextKind] = useState<
+    "KG_TOPIC" | "PAST_PAPER_QUESTION" | "QUESTION_PART"
+  >("KG_TOPIC");
   const [topicNodeId, setTopicNodeId] = useState<string>(defaultTopicNodeId ?? "");
   const [questionId, setQuestionId] = useState<string>("");
+  const [partId, setPartId] = useState<string>("");
   const [questions, setQuestions] = useState<StudentQuestionView[] | null>(null);
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const [mode, setMode] = useState<ClaMode>("EXPLAIN");
@@ -193,10 +199,10 @@ export function ClaAssistantView({
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, busy]);
 
-  // question contexts need the servable list (the SAME subject-scoped surface
-  // practice uses — one subject's questions never surface under another)
+  // question + part contexts need the servable list (the SAME subject-scoped
+  // surface practice uses — one subject's questions never surface under another)
   useEffect(() => {
-    if (contextKind !== "PAST_PAPER_QUESTION" || !rootId || questions !== null) return;
+    if (contextKind === "KG_TOPIC" || !rootId || questions !== null) return;
     setQuestionsLoading(true);
     api
       .questions(undefined, rootId)
@@ -206,12 +212,15 @@ export function ClaAssistantView({
   }, [contextKind, rootId, questions]);
 
   const selectedQuestion = questions?.find((q) => q.id === questionId) ?? null;
+  const selectedPart =
+    selectedQuestion?.parts.find((p) => p.id === partId) ?? null;
 
   const send = async () => {
     const text = draft.trim();
     if (!text || busy) return;
     if (contextKind === "KG_TOPIC" && !topicNodeId) return;
     if (contextKind === "PAST_PAPER_QUESTION" && !questionId) return;
+    if (contextKind === "QUESTION_PART" && (!questionId || !partId)) return;
 
     setMessages((m) => [...m, { kind: "user", text, at: Date.now() }]);
     setDraft("");
@@ -220,7 +229,9 @@ export function ClaAssistantView({
       const result = await api.claAsk(
         contextKind === "KG_TOPIC"
           ? { kind: contextKind, rootId: rootId ?? undefined, topicNodeId, mode, question: text }
-          : { kind: contextKind, questionId, mode, question: text },
+          : contextKind === "QUESTION_PART"
+            ? { kind: contextKind, partId, mode, question: text }
+            : { kind: contextKind, questionId, mode, question: text },
       );
       setMessages((m) => [...m, { kind: "assistant", result, at: Date.now() }]);
     } catch (e) {
@@ -239,7 +250,11 @@ export function ClaAssistantView({
   const disabled =
     busy ||
     !draft.trim() ||
-    (contextKind === "KG_TOPIC" ? !topicNodeId : !questionId);
+    (contextKind === "KG_TOPIC"
+      ? !topicNodeId
+      : contextKind === "QUESTION_PART"
+        ? !questionId || !partId
+        : !questionId);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
@@ -255,6 +270,7 @@ export function ClaAssistantView({
                 <SelectContent>
                   <SelectItem value="KG_TOPIC">Topic (specification)</SelectItem>
                   <SelectItem value="PAST_PAPER_QUESTION">Past-paper question</SelectItem>
+                  <SelectItem value="QUESTION_PART">Question part</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -298,7 +314,13 @@ export function ClaAssistantView({
               <Label className="text-xs text-muted-foreground">
                 Anchored question (served through the full serving gate)
               </Label>
-              <Select value={questionId} onValueChange={setQuestionId}>
+              <Select
+                value={questionId}
+                onValueChange={(v) => {
+                  setQuestionId(v);
+                  setPartId("");
+                }}
+              >
                 <SelectTrigger className="h-9">
                   <SelectValue
                     placeholder={questionsLoading ? "Loading questions…" : "Pick the question you are working on"}
@@ -316,6 +338,38 @@ export function ClaAssistantView({
                 <p className="text-xs text-muted-foreground">
                   {selectedQuestion.marks} marks · {selectedQuestion.type}
                   {selectedQuestion.stem ? ` · ${(selectedQuestion.stem ?? "").slice(0, 120)}` : ""}
+                </p>
+              )}
+            </div>
+          )}
+
+          {contextKind === "QUESTION_PART" && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">
+                Anchored part (resolved on the question's CURRENT validated version)
+              </Label>
+              <Select value={partId} onValueChange={setPartId} disabled={!selectedQuestion}>
+                <SelectTrigger className="h-9">
+                  <SelectValue
+                    placeholder={
+                      !selectedQuestion
+                        ? "Pick a question first"
+                        : "Pick the part you are working on"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {(selectedQuestion?.parts ?? []).map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      ({p.label}) — {(p.prompt ?? "").slice(0, 70)} · {p.marks} marks
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedPart && (
+                <p className="text-xs text-muted-foreground">
+                  Part ({selectedPart.label}) · {selectedPart.marks} marks
+                  {selectedPart.prompt ? ` · ${selectedPart.prompt.slice(0, 120)}` : ""}
                 </p>
               )}
             </div>
