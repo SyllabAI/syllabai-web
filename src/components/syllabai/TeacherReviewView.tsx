@@ -47,6 +47,7 @@ import { TeacherContentView } from "@/components/syllabai/TeacherContentView";
 import { formatRelative, humanizeCode } from "@/lib/format";
 import { ConceptGraphView } from "@/components/syllabai/ConceptGraphView";
 import { TestBuilderView } from "@/components/syllabai/TestBuilderView";
+import { ClassIntelligenceView } from "@/components/syllabai/ClassIntelligenceView";
 import type {
   AnswerMarkingView,
   KappaEvaluationView,
@@ -108,8 +109,11 @@ export function TeacherReviewView({
 
   // V15: the teacher tab hosts multiple surfaces — the Cycle-1 marking review
   // queue, the curriculum concept graph (4CH1 seed + T-C11 settled layer),
-  // the content validation gate and the P9 Test Builder
-  const [surface, setSurface] = useState<"marking" | "graph" | "content" | "test">("marking");
+  // the content validation gate, the P9 Test Builder and the sprint-2
+  // class intelligence surface (§2–§5)
+  const [surface, setSurface] = useState<
+    "marking" | "graph" | "content" | "test" | "class"
+  >("marking");
 
   // kappa gate
   const [kappa, setKappa] = useState<KappaEvaluationView | null>(null);
@@ -317,8 +321,13 @@ export function TeacherReviewView({
 
   return (
     <div className="space-y-4">
-      <Tabs value={surface} onValueChange={(v) => setSurface(v as "marking" | "graph" | "content" | "test")}>
-        <TabsList className="grid h-auto w-full max-w-xl grid-cols-4">
+      <Tabs
+        value={surface}
+        onValueChange={(v) =>
+          setSurface(v as "marking" | "graph" | "content" | "test" | "class")
+        }
+      >
+        <TabsList className="grid h-auto w-full max-w-2xl grid-cols-5">
           <TabsTrigger value="marking" className="text-xs">
             Marking review
           </TabsTrigger>
@@ -331,6 +340,9 @@ export function TeacherReviewView({
           <TabsTrigger value="test" className="text-xs">
             Test builder
           </TabsTrigger>
+          <TabsTrigger value="class" className="text-xs">
+            Class intelligence
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -340,6 +352,8 @@ export function TeacherReviewView({
         <TeacherContentView />
       ) : surface === "test" ? (
         <TestBuilderView subjects={subjects} selectedRootId={rootId} />
+      ) : surface === "class" ? (
+        <ClassIntelligenceView subjects={subjects} selectedRootId={rootId} />
       ) : (
         <>
           <Alert>

@@ -43,6 +43,9 @@ import type {
   TeacherTopicRowView,
   TeacherValidateAllResult,
   TeacherVersionActionResult,
+  ClassLearnerRow,
+  ClassOverviewView,
+  ClassTopicDrillDown,
   TestPreviewView,
   TutorAnswerView,
 } from "./types";
@@ -308,6 +311,24 @@ export const api = {
     if (includeAnswers) params.set("includeAnswers", "true");
     return request<TestPreviewView>(`/api/v1/teacher/tests/preview?${params}`);
   },
+
+  // ── Teacher class intelligence (sprint 2 §2–§5; route security: TEACHER or
+  // ADMIN; read-only aggregations over the existing learner-model tables) ──
+
+  classOverview: (rootId: string) =>
+    request<ClassOverviewView>(
+      `/api/v1/teacher/class/overview?rootId=${encodeURIComponent(rootId)}`,
+    ),
+
+  classLearners: (rootId: string) =>
+    request<ClassLearnerRow[]>(
+      `/api/v1/teacher/class/learners?rootId=${encodeURIComponent(rootId)}`,
+    ),
+
+  classTopicDrillDown: (rootId: string, nodeId: string) =>
+    request<ClassTopicDrillDown>(
+      `/api/v1/teacher/class/topics/${nodeId}/drill-down?rootId=${encodeURIComponent(rootId)}`,
+    ),
 
   // ── teacher content validation (Master Spec §7: SUGGESTED never serves) ──
 

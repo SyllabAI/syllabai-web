@@ -649,6 +649,8 @@ export interface TeacherSchemeActionResult {
 /** Learner-facing paper metadata (no question content — serving stays gated). */
 export interface ExamPaperBrowseView {
   id: string;
+  /** subject scoping (null = unassigned) — lets surfaces split papers by subject */
+  subjectId: string | null;
   title: string;
   board: string | null;
   qualification: string | null;
@@ -726,4 +728,143 @@ export interface TestAnswerView {
   text: string;
   marks: number;
   acceptanceCriteria: string[];
+}
+
+// ── Teacher class intelligence (productization sprint 2 §2–§5; mirrors core
+// ClassAnalyticsService view records; policy class-analytics/v1) ──
+
+/** One heatmap cell: topic × class evidence and mastery (null = unmeasured). */
+export interface ClassTopicAggregate {
+  nodeId: string;
+  code: string;
+  title: string;
+  parentCode: string | null;
+  parentTitle: string | null;
+  learnersMeasured: number;
+  meanMastery: number | null;
+  masteryBand: "LOW" | "DEVELOPING" | "SECURE" | "UNMEASURED";
+  evidenceBackedAttempts: number;
+  learnersWithActiveMisconception: number;
+  activeMisconceptionSignals: number;
+  tutorEngagements: number;
+  dueReviews: number;
+  servableQuestions: number;
+}
+
+/** A prerequisite the class measures weak, with the dependents that need it. */
+export interface ClassWeakPrerequisite {
+  prerequisiteNodeId: string;
+  prerequisiteCode: string;
+  prerequisiteTitle: string;
+  learnersMeasured: number;
+  meanMastery: number | null;
+  masteryBand: string;
+  dependents: { nodeId: string; code: string; title: string; meanMastery: number | null }[];
+}
+
+export interface ClassRecentActivity {
+  recentAttempts: number;
+  learnersActive: number;
+  tutorAsks: number;
+  structuredAnswersPendingMarking: number;
+  windowStart: string;
+}
+
+export interface ClassOverviewView {
+  rootId: string;
+  rootCode: string;
+  policy: string;
+  enrolledLearners: number;
+  learnersWithEvidence: number;
+  learnersRecentlyActive: number;
+  totalTopics: number;
+  measuredTopics: number;
+  topics: ClassTopicAggregate[];
+  weakPrerequisites: ClassWeakPrerequisite[];
+  recentActivity: ClassRecentActivity;
+}
+
+/** One learner row — evidence kinds stay separated; nulls mean unmeasured. */
+export interface ClassLearnerRow {
+  learnerId: string;
+  displayName: string;
+  createdAt: string;
+  evidenceState: "MEASURED" | "UNMEASURED";
+  topicsMeasured: number;
+  meanMastery: number | null;
+  evidenceBackedAttempts: number;
+  recentAttempts: number;
+  recentCorrect: number;
+  lastActivityAt: string | null;
+  weakestTopics: {
+    nodeId: string;
+    code: string;
+    title: string;
+    mastery: number;
+    band: string;
+    attempts: number;
+  }[];
+  activeMisconceptions: number;
+  misconceptionSignals: {
+    misconceptionNodeId: string;
+    code: string;
+    title: string;
+    probability: number;
+    evidenceCount: number;
+    parentTopicNodeId: string | null;
+    parentTopicCode: string | null;
+  }[];
+  tutorEngagements: number;
+  tutorSignalCounts: Record<string, number>;
+  lastTutorEngagementAt: string | null;
+  dueReviews: number;
+}
+
+/** §5 drill-down: class → topic → learners → evidence → intervention. */
+export interface ClassTopicDrillDown {
+  rootId: string;
+  topic: ClassTopicAggregate;
+  prerequisiteChain: {
+    nodeId: string;
+    code: string;
+    title: string;
+    depth: number;
+    learnersMeasured: number;
+    meanMastery: number | null;
+    masteryBand: string;
+  }[];
+  affectedLearners: {
+    learnerId: string;
+    displayName: string;
+    mastery: number | null;
+    reason: "LOW_MASTERY" | "ACTIVE_MISCONCEPTION" | "LOW_MASTERY_AND_ACTIVE_MISCONCEPTION";
+    misconceptions: {
+      misconceptionNodeId: string;
+      code: string;
+      title: string;
+      probability: number;
+      evidenceCount: number;
+      parentTopicNodeId: string | null;
+      parentTopicCode: string | null;
+    }[];
+  }[];
+  representativeEvidence: {
+    attemptId: string;
+    learnerId: string;
+    learnerDisplayName: string;
+    questionId: string;
+    questionRef: string | null;
+    correct: boolean;
+    marksAwarded: number | null;
+    questionMarks: number;
+    markingState: string;
+    createdAt: string;
+  }[];
+  servableQuestions: {
+    id: string;
+    externalRef: string;
+    type: string;
+    marks: number;
+    difficulty: number;
+  }[];
 }
