@@ -117,6 +117,34 @@ def main() -> int:
         out["weakTopicCount"] = len(wo.get("weakTopics") or [])
         print(f"target topic final: {json.dumps(out.get('targetTopicFinal'))}")
 
+    # 4. drill-down: the affected learners + representative evidence on the topic
+    s, dd = http("GET", f"/api/v1/teacher/class/topics/{TOPIC_ID}/drill-down"
+                        f"?rootId={root}", token=ttok)
+    if s == 200 and isinstance(dd, dict):
+        out["drillDown"] = {
+            "topic": {"code": (dd.get("topic") or {}).get("code"),
+                      "learnersMeasured": (dd.get("topic") or {}).get("learnersMeasured"),
+                      "meanMastery": (dd.get("topic") or {}).get("meanMastery")},
+            "affectedLearners": [{
+                "displayName": a.get("displayName"),
+                "mastery": a.get("mastery"),
+                "reason": a.get("reason"),
+            } for a in (dd.get("affectedLearners") or [])][:12],
+            "evidenceCount": len(dd.get("representativeEvidence") or []),
+            "representativeEvidence": [{
+                "learner": e.get("learnerDisplayName"),
+                "questionRef": e.get("questionRef"),
+                "correct": e.get("correct"),
+                "marks": e.get("marksAwarded"),
+                "of": e.get("questionMarks"),
+                "state": e.get("markingState"),
+            } for e in (dd.get("representativeEvidence") or [])][:12],
+        }
+        print(f"drill-down: {json.dumps(out['drillDown'].get('topic'))} "
+              f"affected={len(out['drillDown']['affectedLearners'])}")
+    else:
+        print(f"drill-down status={s}")
+
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1, sort_keys=True)
     print(f"written {OUT_PATH}")
