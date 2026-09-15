@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: "dump (read-only working set) | mark (apply the marks manifest)"
+        description: "precheck | dump | smartmark | mark | after"
         required: true
         default: "dump"
       manifest_sha:
@@ -48,6 +48,25 @@ jobs:
         with:
           name: s2-cycle-dump
           path: s2-cycle-dump.json
+          if-no-files-found: ignore
+
+      - name: Read-only loop precheck (serving topics + weakness state)
+        if: inputs.phase == 'precheck'
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          MONITOR_EMAIL: ${{ secrets.PILOT_MONITOR_EMAIL }}
+          MONITOR_PASSWORD: ${{ secrets.PILOT_MONITOR_PASSWORD }}
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          PROBE_PATH: s2-cycle-precheck.json
+        run: python3 scripts/ops/s2_cycle_precheck.py
+
+      - name: Upload precheck snapshot
+        if: always() && inputs.phase == 'precheck'
+        uses: actions/upload-artifact@v4
+        with:
+          name: s2-cycle-precheck
+          path: s2-cycle-precheck.json
           if-no-files-found: ignore
 
       - name: Apply the teacher's marks manifest (human marks)
