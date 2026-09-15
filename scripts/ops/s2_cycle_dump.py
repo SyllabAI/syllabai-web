@@ -93,8 +93,29 @@ def main() -> int:
                 nv = len(review.get("versions") or [])
                 print(f"paper {g.get('paperCode')}: {nv} question version(s) with schemes")
 
+    # topic rows per distinct question — determines whether marked evidence
+    # lands on curriculum topics (class mastery / weakness lanes)
+    qids = sorted({a.get("questionId") for a in
+                   (i.get("answer") for i in items)} - {None})
+    topic_rows: dict[str, list] = {}
+    for qid in qids:
+        s3, rows = http(
+            "GET", f"/api/v1/teacher/content/questions/{qid}/topics", token=tok,
+            timeout=120)
+        if s3 == 200:
+            topic_rows[qid] = rows
+        else:
+            topic_rows[qid] = {"status": s3}
+    mapped = sum(1 for v in topic_rows.values()
+                 if isinstance(v, list)
+                 and any((r or {}).get("primary") for r in v))
+    has_rows = sum(1 for v in topic_rows.values() if isinstance(v, list) and v)
+    print(f"topic rows: {has_rows}/{len(qids)} questions have rows, "
+          f"{mapped} have a PRIMARY mapping")
+
     dump = {
         "capturedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "questionTopics": topic_rows,
         "queueState": queue.get("state"),
         "groups": [
             {"paperId": g.get("paperId"), "title": g.get("paperTitle"),
