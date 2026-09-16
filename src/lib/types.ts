@@ -998,9 +998,25 @@ export interface ClassTopicDrillDown {
 /** The four explicit response modes (contract §3). HINT/CHECK are attempt-aware. */
 export type ClaMode = "EXPLAIN" | "SUMMARIZE" | "HINT" | "CHECK";
 
+/** SMART_LESSON context: the learner's own deterministic lesson next-action (smart-lesson/v2 ladder). */
+export interface ClaLessonActionView {
+  actionType: string;
+  reasonCode: string;
+  targetNodeId: string | null;
+  targetCode: string | null;
+  targetTitle: string | null;
+  reasonDetail: string | null;
+  servableQuestionCount: number;
+}
+
 /** Resolved-context summary — exactly what the SERVER resolved, never client-asserted. */
 export interface ClaContextView {
-  kind: "KG_TOPIC" | "PAST_PAPER_QUESTION" | "QUESTION_PART" | "SPECIFICATION_POINT";
+  kind:
+    | "KG_TOPIC"
+    | "PAST_PAPER_QUESTION"
+    | "QUESTION_PART"
+    | "SPECIFICATION_POINT"
+    | "SMART_LESSON";
   reference: string;
   topicNodeId: string | null;
   rootId: string | null;
@@ -1018,6 +1034,8 @@ export interface ClaContextView {
   paperCode: string | null;
   attempted: boolean | null;
   partLabel: string | null;
+  /** SMART_LESSON only: the learner's own deterministic lesson next-action */
+  lessonAction: ClaLessonActionView | null;
 }
 
 /** Citation mirror of the Tutor citation (resolved, verbatim label + deep link). */

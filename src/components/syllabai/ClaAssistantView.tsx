@@ -64,6 +64,11 @@ const MODES: { value: ClaMode; label: string; hint: string; icon: typeof Lightbu
   { value: "CHECK", label: "Check", hint: "Full feedback after your attempt", icon: BookOpenCheck },
 ];
 
+/** topic-anchored kinds share the root+topic references (KG_TOPIC, SMART_LESSON) */
+function isTopicKind(kind: "KG_TOPIC" | "PAST_PAPER_QUESTION" | "QUESTION_PART" | "SMART_LESSON") {
+  return kind === "KG_TOPIC" || kind === "SMART_LESSON";
+}
+
 /** Split an answer into text + citation-marker segments ([n] and 【n】). */
 function parseMarkers(answer: string): { text: string; marker: number | null }[] {
   const parts: { text: string; marker: number | null }[] = [];
@@ -160,6 +165,17 @@ function MetaRow({ result }: { result: ClaAnswerView }) {
           </span>
         </span>
       )}
+      {result.context.kind === "SMART_LESSON" && result.context.lessonAction && (
+        <span>
+          next action:{" "}
+          <span className="font-medium text-foreground">
+            {result.context.lessonAction.actionType.toLowerCase().replace(/_/g, " ")}
+          </span>
+          {result.context.lessonAction.targetCode &&
+            result.context.lessonAction.targetCode !== result.context.topicCode &&
+            ` → ${result.context.lessonAction.targetCode}`}
+        </span>
+      )}
     </div>
   );
 }
@@ -179,7 +195,7 @@ export function ClaAssistantView({
   defaultTopicNodeId?: string | null;
 }) {
   const [contextKind, setContextKind] = useState<
-    "KG_TOPIC" | "PAST_PAPER_QUESTION" | "QUESTION_PART"
+    "KG_TOPIC" | "PAST_PAPER_QUESTION" | "QUESTION_PART" | "SMART_LESSON"
   >("KG_TOPIC");
   const [topicNodeId, setTopicNodeId] = useState<string>(defaultTopicNodeId ?? "");
   const [questionId, setQuestionId] = useState<string>("");
@@ -202,7 +218,7 @@ export function ClaAssistantView({
   // question + part contexts need the servable list (the SAME subject-scoped
   // surface practice uses — one subject's questions never surface under another)
   useEffect(() => {
-    if (contextKind === "KG_TOPIC" || !rootId || questions !== null) return;
+    if (isTopicKind(contextKind) || !rootId || questions !== null) return;
     setQuestionsLoading(true);
     api
       .questions(undefined, rootId)
@@ -218,7 +234,7 @@ export function ClaAssistantView({
   const send = async () => {
     const text = draft.trim();
     if (!text || busy) return;
-    if (contextKind === "KG_TOPIC" && !topicNodeId) return;
+    if (isTopicKind(contextKind) && !topicNodeId) return;
     if (contextKind === "PAST_PAPER_QUESTION" && !questionId) return;
     if (contextKind === "QUESTION_PART" && (!questionId || !partId)) return;
 
@@ -227,7 +243,7 @@ export function ClaAssistantView({
     setBusy(true);
     try {
       const result = await api.claAsk(
-        contextKind === "KG_TOPIC"
+        isTopicKind(contextKind)
           ? { kind: contextKind, rootId: rootId ?? undefined, topicNodeId, mode, question: text }
           : contextKind === "QUESTION_PART"
             ? { kind: contextKind, partId, mode, question: text }
@@ -250,7 +266,7 @@ export function ClaAssistantView({
   const disabled =
     busy ||
     !draft.trim() ||
-    (contextKind === "KG_TOPIC"
+    (isTopicKind(contextKind)
       ? !topicNodeId
       : contextKind === "QUESTION_PART"
         ? !questionId || !partId
@@ -269,6 +285,7 @@ export function ClaAssistantView({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="KG_TOPIC">Topic (specification)</SelectItem>
+                  <SelectItem value="SMART_LESSON">Smart lesson</SelectItem>
                   <SelectItem value="PAST_PAPER_QUESTION">Past-paper question</SelectItem>
                   <SelectItem value="QUESTION_PART">Question part</SelectItem>
                 </SelectContent>
@@ -291,10 +308,12 @@ export function ClaAssistantView({
             </div>
           </div>
 
-          {contextKind === "KG_TOPIC" ? (
+          {isTopicKind(contextKind) ? (
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">
-                Anchored topic (server resolves VALIDATED-only)
+                {contextKind === "SMART_LESSON"
+                  ? "Anchored lesson topic (your own next action rides along)"
+                  : "Anchored topic (server resolves VALIDATED-only)"}
               </Label>
               <Select value={topicNodeId} onValueChange={setTopicNodeId}>
                 <SelectTrigger className="h-9">

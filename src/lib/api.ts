@@ -256,7 +256,12 @@ export const api = {
   // (fail-closed 404 on anything unvalidated/foreign); CHECK pre-attempt is a
   // deterministic 409 attempt_required the UI renders as guidance.
   claAsk: (body: {
-    kind: "KG_TOPIC" | "PAST_PAPER_QUESTION" | "QUESTION_PART" | "SPECIFICATION_POINT";
+    kind:
+      | "KG_TOPIC"
+      | "PAST_PAPER_QUESTION"
+      | "QUESTION_PART"
+      | "SPECIFICATION_POINT"
+      | "SMART_LESSON";
     rootId?: string;
     topicNodeId?: string;
     questionId?: string;
