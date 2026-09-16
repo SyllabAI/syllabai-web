@@ -63,6 +63,33 @@ export interface StudentQuestionView {
   parts: PartView[];
 }
 
+// ── SME-style mark-scheme reveal (policy-gated learner surface) ──
+
+export interface MarkSchemePointView {
+  ref: string | null;
+  text: string;
+  marks: number;
+}
+
+export interface MarkSchemePartScheme {
+  partId: string;
+  label: string | null;
+  prompt: string | null;
+  marks: number;
+  points: MarkSchemePointView[];
+}
+
+export interface MarkSchemeRevealView {
+  questionId: string;
+  questionExternalRef: string | null;
+  schemeId: string;
+  validationState: "SUGGESTED" | "VALIDATED" | "REJECTED" | "FLAGGED";
+  schemeMarks: number;
+  questionMarks: number;
+  parts: MarkSchemePartScheme[];
+  generalPoints: MarkSchemePointView[];
+}
+
 export interface StructuredAttemptPartResult {
   partId: string;
   label: string;

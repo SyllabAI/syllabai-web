@@ -57,6 +57,7 @@ import type {
   TutorAnswerView,
   RevisionNoteBodyView,
   RevisionNotesIndexView,
+  MarkSchemeRevealView,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
@@ -553,6 +554,20 @@ export const api = {
 
   examPaper: (paperId: string) =>
     request<ExamPaperDetailView>(`/api/v1/exam-papers/${paperId}`),
+
+  // single servable question with its parts (404 when not servable — the
+  // same gate the practice list applies)
+  question: (id: string) =>
+    request<StudentQuestionView>(`/api/v1/questions/${id}`),
+
+  // SME-style mark-scheme reveal (Master Spec §15/§20/§22, policy-gated):
+  // 200 = the reveal policy serves the scheme; 204 = withheld (pending
+  // teacher validation under VALIDATED_ONLY, or rejected/flagged) which
+  // request() maps to undefined so the UI can say so honestly.
+  markScheme: (questionId: string) =>
+    request<MarkSchemeRevealView | undefined>(
+      `/api/v1/questions/${encodeURIComponent(questionId)}/mark-scheme`,
+    ),
 
   // ── revision notes (SME-style corpus, learner-scoped, authenticated-only) ──
 
