@@ -23,7 +23,9 @@ import type {
 } from "@/lib/types";
 import { TeacherReviewView } from "@/components/syllabai/TeacherReviewView";
 import { PapersView } from "@/components/syllabai/PapersView";
+import { RevisionNotesView } from "@/components/syllabai/RevisionNotesView";
 import {
+  BookOpen,
   Brain,
   ClipboardList,
   Compass,
@@ -324,7 +326,7 @@ export default function SyllabAiWorkbench() {
       <main className="mx-auto w-full max-w-5xl flex-1 scroll-mt-16 px-4 py-6">
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList
-            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-10" : "grid-cols-9"}`}
+            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-11" : "grid-cols-10"}`}
           >
             <TabsTrigger value="dashboard" className="gap-1.5">
               <LayoutDashboard className="size-4" aria-hidden="true" />
@@ -345,6 +347,10 @@ export default function SyllabAiWorkbench() {
             <TabsTrigger value="papers" className="gap-1.5">
               <FileText className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">Papers</span>
+            </TabsTrigger>
+            <TabsTrigger value="notes" className="gap-1.5">
+              <BookOpen className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Notes</span>
             </TabsTrigger>
             <TabsTrigger value="tutor" className="gap-1.5">
               <MessagesSquare className="size-4" aria-hidden="true" />
@@ -419,6 +425,9 @@ export default function SyllabAiWorkbench() {
                 subjectsList.find((s) => s.knowledgeNodeId === rootId)?.id ?? null
               }
             />
+          </TabsContent>
+          <TabsContent value="notes">
+            <RevisionNotesView />
           </TabsContent>
           <TabsContent value="tutor">
             <TutorChatView

@@ -1076,3 +1076,50 @@ export interface ClaAnswerView {
   latencyMs: number;
   tools: ClaToolTraceView[];
 }
+
+// ── Revision notes (SME-style corpus; learner-scoped; authenticated-only) ──
+
+export interface RevisionNoteMetaView {
+  noteId: string;
+  title: string;
+  order: number;
+  specPointCodes: string[];
+}
+
+export interface RevisionNoteSubtopicView {
+  order: number;
+  title: string;
+  noteCount: number;
+  notes: RevisionNoteMetaView[];
+}
+
+export interface RevisionNoteTopicView {
+  order: number;
+  title: string;
+  subtopics: RevisionNoteSubtopicView[];
+}
+
+/** One learner's "opened this note" marker — drives the per-subtopic rings. */
+export interface RevisionNoteViewedView {
+  noteId: string;
+  viewedAt: string;
+}
+
+/** Full tree + the caller's viewed markers in one response. */
+export interface RevisionNotesIndexView {
+  corpusVersion: string | null;
+  ingestedAt: string | null;
+  topics: RevisionNoteTopicView[];
+  viewed: RevisionNoteViewedView[];
+}
+
+export interface RevisionNoteBodyView {
+  noteId: string;
+  title: string;
+  bodyMd: string;
+  specMapJson: string;
+  sourceUrl: string | null;
+  assets: string[];
+  prevNoteId: string | null;
+  nextNoteId: string | null;
+}

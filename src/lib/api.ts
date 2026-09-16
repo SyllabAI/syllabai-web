@@ -55,6 +55,8 @@ import type {
   TestPreviewView,
   WeaknessOptionsView,
   TutorAnswerView,
+  RevisionNoteBodyView,
+  RevisionNotesIndexView,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
@@ -155,7 +157,37 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(response.status, message);
   }
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return (await response.json()) as T;
+}
+
+/**
+ * Revision-note diagram assets live behind the authenticated learner surface
+ * (pilot-licensed corpus, LICENSE-DATA.md) — plain <img src> cannot carry the
+ * bearer header, so assets are blob-fetched and cached as object URLs.
+ */
+const revisionAssetCache = new Map<string, Promise<string>>();
+
+export function fetchRevisionNoteAsset(filename: string): Promise<string> {
+  const cached = revisionAssetCache.get(filename);
+  if (cached) return cached;
+  const promise = (async () => {
+    const headers = new Headers();
+    const token = getToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch(
+      apiPath(`/api/v1/learners/me/revision-notes/assets/${encodeURIComponent(filename)}`),
+      { headers },
+    );
+    if (!response.ok) throw new ApiError(response.status, `Asset failed (${response.status})`);
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  })();
+  revisionAssetCache.set(filename, promise);
+  promise.catch(() => revisionAssetCache.delete(filename));
+  return promise;
 }
 
 export const api = {
@@ -521,4 +553,20 @@ export const api = {
 
   examPaper: (paperId: string) =>
     request<ExamPaperDetailView>(`/api/v1/exam-papers/${paperId}`),
+
+  // ── revision notes (SME-style corpus, learner-scoped, authenticated-only) ──
+
+  revisionNotes: () =>
+    request<RevisionNotesIndexView>("/api/v1/learners/me/revision-notes"),
+
+  revisionNote: (noteId: string) =>
+    request<RevisionNoteBodyView>(
+      `/api/v1/learners/me/revision-notes/${encodeURIComponent(noteId)}`,
+    ),
+
+  markRevisionNoteViewed: (noteId: string) =>
+    request<void>(`/api/v1/learners/me/revision-notes/progress/views`, {
+      method: "POST",
+      body: JSON.stringify({ noteId }),
+    }),
 };
