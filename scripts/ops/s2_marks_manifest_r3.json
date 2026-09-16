@@ -1,0 +1,124 @@
+{
+ "decisions": [
+  {
+   "answerId": "c3baf107-1427-47ce-9c56-dffa08c85e50",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "7650da1b-b2b3-431e-af36-619e992e21d6",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "41e12567-f73f-4ea0-9566-1f6351eb3b44",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "42e7c8fc-8c76-4015-b493-2eb07f00cd78",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "e7831618-1b58-424a-945f-5c7cb588551a",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "c9fbe19b-3b8c-4544-ad89-78c4a459b18d",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "abcf1c30-25d5-4772-8dc6-31b9b246677b",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "600cd50a-577f-4fb3-ac33-04bfc591bd9f",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "5048f7cc-38d9-482f-8687-cea3a4474d32",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "1756e01c-92b1-4a8a-9f39-0fd66ec2d3aa",
+   "comment": "No response submitted for this part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "28ea7623-6fd0-4a8e-af66-46bacefc3fdf",
+   "comment": "All four apparatus correctly identified (P beaker, Q filter funnel, R conical flask, S pipette) - matches the mark point in full.",
+   "marksAwarded": 4,
+   "perPointDecisions": {
+    "4433f6d9-496e-45cd-b9c6-b6d8065446db": 1
+   }
+  },
+  {
+   "answerId": "8f441992-bbd9-48ae-bb34-ec40b6b89079",
+   "comment": "'D red' is the correct final colour of litmus in dilute hydrochloric acid.",
+   "marksAwarded": 1,
+   "perPointDecisions": {
+    "bdd40a14-5be9-438e-95a2-c8adbe234898": 1
+   }
+  },
+  {
+   "answerId": "9d49f065-2c07-4df9-a57c-50f3b8901db4",
+   "comment": "'A blue' is the correct final colour of litmus in potassium hydroxide solution.",
+   "marksAwarded": 1,
+   "perPointDecisions": {
+    "88b87809-a600-43d2-a55b-df152eb9d741": 1
+   }
+  },
+  {
+   "answerId": "4cc6c367-03fa-45be-b39b-8a8738e00f87",
+   "comment": "'B neutralisation' is the correct reaction type between dilute sulfuric acid and sodium hydroxide.",
+   "marksAwarded": 1,
+   "perPointDecisions": {
+    "063eae03-6f02-45f5-a873-05d81ee3db60": 1
+   }
+  },
+  {
+   "answerId": "c08be71d-c708-4409-a991-3c52aa51b731",
+   "comment": "No response submitted for the burette-reading part; nothing creditable.",
+   "marksAwarded": 0,
+   "perPointDecisions": null
+  },
+  {
+   "answerId": "9ede39fa-5507-4e4a-afb3-ae1b9209bab3",
+   "comment": "Table completed with the correct readings (26.30, 1.75, 24.55 to the nearest 0.05 cm3) - all three mark points met.",
+   "marksAwarded": 3,
+   "perPointDecisions": {
+    "3ae20d46-dacb-4545-b40d-e799eda804e6": 1
+   }
+  },
+  {
+   "answerId": "e62e46d0-6cb5-42a4-bacd-dc3cdc6fa0c4",
+   "comment": "Two valid reasons required; the response states all three acceptable reasons (concordant titres, identifying anomalies, obtaining a mean) - full credit.",
+   "marksAwarded": 2,
+   "perPointDecisions": {
+    "f65752d3-7993-4a56-995b-3bd49487ad09": 1
+   }
+  }
+ ],
+ "dumpCapturedAt": "2026-09-16T23:13:51Z",
+ "manifestSha256": "d995b9c77bc4d6e9eb061be4de0dae2ff9ad35f8b9ca428d9d7ca6041f3eb633",
+ "manifestVersion": "evidence-cycle-001-r3",
+ "preparedAt": "2026-09-17",
+ "preparedBy": "operator-directed teacher review (session-90, delegated per the r1/r2 precedent by the operator's r3 resume directive + DSN provision)",
+ "reviewFinding": "Round 3 - the monitor learner's targeted remediation attempts on 4CH1-S2-f. The after phase submitted the answer-key texts as controlled remediation inputs (honestly labeled): Q1 (96ae4235) and Q2 (ac5045d7) parts carry the scheme point texts and earn full credit per part; the remaining parts (Q2 burette reading, all of Q3/ddf30066) were left empty and earn 0. Per-point decisions carry the awarded flag for each in-scope mark point."
+}
