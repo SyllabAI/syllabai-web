@@ -1,0 +1,53 @@
+# SME corpus package upload (session 105, ADR-026 import) — manual dispatch.
+#
+# Downloads the two sha256-spined packages from this repo's release
+# `sme-corpus-2026-09-18` and uploads them to the live core through the admin
+# ingest endpoints, using the PILOT_TEACHER_* secrets. If the account does not
+# hold ADMIN the run records OPERATOR_BOUNDARY and leaves the live bank
+# untouched (the operator's manual fallback is the runbook, Path B).
+name: sme-package-upload
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sme-package-upload
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download corpus packages (release assets)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p packages
+          gh release download sme-corpus-2026-09-18 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'sme-*.zip' \
+            --dir packages
+          ls -la packages
+          sha256sum packages/*.zip
+
+      - name: Upload to live core
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          PKG_DIR: packages
+          RESULT_PATH: s105-upload-result.json
+        run: python3 scripts/ops/s105_upload_packages.py
+
+      - name: Upload result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s105-upload-result
+          path: s105-upload-result.json
+          if-no-files-found: ignore
