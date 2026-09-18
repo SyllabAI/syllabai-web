@@ -5,16 +5,39 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CheckCircle2, Clock, Loader2, MessagesSquare, PenLine, Send, Timer, TriangleAlert, XCircle } from "lucide-react";
-import { api } from "@/lib/api";
-import type { AttemptResultView, StudentQuestionView, StructuredAttemptResultView } from "@/lib/types";
+import {
+  BookOpen,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  Loader2,
+  MessagesSquare,
+  Minus,
+  PenLine,
+  Plus,
+  Send,
+  Timer,
+  TriangleAlert,
+  XCircle,
+} from "lucide-react";
+import { api, ApiError } from "@/lib/api";
+import type {
+  AttemptResultView,
+  MarkSchemeRevealView,
+  RevisionNoteBodyView,
+  RevisionNotesIndexView,
+  SelfMarkView,
+  StudentQuestionView,
+  StructuredAttemptResultView,
+} from "@/lib/types";
+import { QuestionMarkdown } from "./QuestionMarkdown";
 
 const CONFIDENCE_LABELS = ["", "guessing", "unsure", "getting there", "confident", "certain"];
 
@@ -236,117 +259,47 @@ export function PracticeView({
           <Progress value={((index + 1) / (questions?.length ?? 1)) * 100} aria-label="Quiz progress" />
         </CardHeader>
         <CardContent className="space-y-5">
-          <p className="text-sm leading-relaxed">{question.stem}</p>
+          {question.stem ? <QuestionMarkdown>{question.stem}</QuestionMarkdown> : null}
+
+          <QuestionHelpPanel question={question} />
 
           {structuredResult ? (
-            <div className="space-y-4">
-              <Alert>
-                <Clock className="size-4 text-blue-600" aria-hidden="true" />
-                <AlertTitle>Submitted for marking — {structuredResult.marksPossible} marks</AlertTitle>
-                <AlertDescription>
-                  Your written answers are stored and queued for marking. Marks and
-                  feedback appear once your teacher (or the κ-gated Smart Mark engine)
-                  has marked them — your mastery updates then.
-                </AlertDescription>
-              </Alert>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                {structuredResult.parts.map((part) => (
-                  <li key={part.partId} className="flex items-center justify-between gap-2">
-                    <span>Part {part.label}</span>
-                    <span className="text-xs">pending marks</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={nextQuestion}>Next question</Button>
-              </div>
-            </div>
+            <StructuredResultPanel
+              question={question}
+              result={structuredResult}
+              partAnswers={partAnswers}
+              onNext={nextQuestion}
+            />
           ) : result ? (
-            <div className="space-y-4">
-              <Alert variant={result.correct ? "default" : "destructive"}>
-                {result.correct ? (
-                  <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
-                ) : (
-                  <XCircle className="size-4" aria-hidden="true" />
-                )}
-                <AlertTitle>
-                  {result.correct
-                    ? `Correct — ${result.marksAwarded}/${result.marksTotal} marks`
-                    : `Not correct — ${result.marksAwarded}/${result.marksTotal} marks`}
-                </AlertTitle>
-                <AlertDescription>
-                  {result.correct
-                    ? "Your BKT mastery estimate for this topic has been updated."
-                    : `Correct answer: ${result.correctOptionLabel}. Your mastery estimate was updated — check “My state” for the misconception flag.`}
-                </AlertDescription>
-              </Alert>
-
-              {!result.correct && result.implicatedMisconceptionIds.length > 0 && (
-                <Alert>
-                  <TriangleAlert className="size-4 text-amber-500" aria-hidden="true" />
-                  <AlertTitle>Misconception signal detected</AlertTitle>
-                  <AlertDescription>
-                    The option you chose matches a documented misconception. The BDT engine
-                    raised its probability — a remediation step will be suggested once it
-                    becomes active.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={nextQuestion}>Next question</Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setResult(null);
-                    setStructuredResult(null);
-                    setChosen(null);
-                    startedAt.current = Date.now();
-                  }}
-                >
-                  Retry this question
-                </Button>
-                {onAskTutorAbout && (
-                  <Button
-                    variant="outline"
-                    className="gap-1.5"
-                    onClick={() => {
-                      const stem = question?.stem.slice(0, 300) ?? "a question";
-                      const chosenLabel =
-                        question?.options.find((o) => o.id === chosen)?.label ?? "";
-                      const correctLabel = result.correctOptionLabel ?? "";
-                      onAskTutorAbout(
-                        result.correct
-                          ? `I answered this question correctly${
-                              topicTitle ? ` on ${topicTitle}` : ""
-                            }: "${stem}" — I chose ${chosenLabel}, which was the right answer. Can you explain the chemistry behind it and what related ideas I should review to make sure I really understand it?`
-                          : `I got this question wrong${
-                              topicTitle ? ` on ${topicTitle}` : ""
-                            } and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${correctLabel}. Can you explain the chemistry behind the correct answer?`,
-                      );
-                    }}
-                  >
-                    <MessagesSquare className="size-4" aria-hidden="true" />
-                    Ask tutor about this
-                  </Button>
-                )}
-              </div>
-            </div>
+            <McqResultPanel
+              question={question}
+              result={result}
+              chosen={chosen}
+              topicTitle={topicTitle}
+              onRetry={() => {
+                setResult(null);
+                setChosen(null);
+                startedAt.current = Date.now();
+              }}
+              onNext={nextQuestion}
+              onAskTutorAbout={onAskTutorAbout}
+            />
           ) : (
             <>
               {isStructured ? (
                 <div className="space-y-4">
                   {(question.parts ?? []).map((part) => (
                     <div key={part.id} className="space-y-1.5">
-                      <Label htmlFor={part.id} className="text-sm font-semibold">
-                        {part.label}) {part.commandWord ? `${part.commandWord} — ` : ""}
-                        {part.prompt}
-                        {part.marks > 0 && (
-                          <span className="ml-1 font-normal text-muted-foreground">
-                            ({part.marks} mark{part.marks > 1 ? "s" : ""})
-                          </span>
-                        )}
-                      </Label>
+                      <div className="text-sm font-semibold">
+                        <span className="mr-1.5 inline-flex size-6 items-center justify-center rounded border bg-muted font-mono text-xs">
+                          {part.label}
+                        </span>
+                        {part.commandWord ? `${part.commandWord} — ` : ""}
+                        <span className="ml-1 font-normal text-muted-foreground">
+                          ({part.marks} mark{part.marks > 1 ? "s" : ""})
+                        </span>
+                      </div>
+                      <QuestionMarkdown>{part.prompt}</QuestionMarkdown>
                       <Textarea
                         id={part.id}
                         value={partAnswers[part.id] ?? ""}
@@ -361,25 +314,13 @@ export function PracticeView({
                   ))}
                 </div>
               ) : (
-              <RadioGroup
-                value={chosen ?? ""}
-                onValueChange={setChosen}
-                className="gap-3"
-                aria-label="Answer options"
-              >
-                {question.options.map((option) => (
-                  <div
-                    key={option.id}
-                    className="flex items-start gap-3 rounded-lg border p-3 transition-colors has-[button[data-state=checked]]:border-primary has-[button[data-state=checked]]:bg-primary/5"
-                  >
-                    <RadioGroupItem value={option.id} id={option.id} className="mt-0.5" />
-                    <Label htmlFor={option.id} className="cursor-pointer font-normal leading-relaxed">
-                      <span className="mr-2 font-semibold">{option.label}.</span>
-                      {option.text}
-                    </Label>
-                  </div>
-                ))}
-              </RadioGroup>
+                <McqChoiceGrid
+                  options={question.options}
+                  chosen={chosen}
+                  onChoose={setChosen}
+                  disabled={busy}
+                  revealed={false}
+                />
               )}
 
               <div className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
@@ -447,6 +388,653 @@ export function PracticeView({
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ── MCQ: the SME four-button choice grid ─────────────────────────────────────
+
+function McqChoiceGrid({
+  options,
+  chosen,
+  onChoose,
+  disabled,
+  revealed,
+  correctOptionId,
+}: {
+  options: StudentQuestionView["options"];
+  chosen: string | null;
+  onChoose: (id: string) => void;
+  disabled?: boolean;
+  revealed?: boolean;
+  correctOptionId?: string | null;
+}) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Answer options">
+      {options.map((option) => {
+        const isSelected = chosen === option.id;
+        const isCorrect = revealed && correctOptionId === option.id;
+        const isWrongPick = revealed && isSelected && !isCorrect;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={isSelected}
+            disabled={disabled}
+            onClick={() => onChoose(option.id)}
+            className={[
+              "flex items-start gap-3 rounded-lg border p-3 text-left transition-colors",
+              "hover:border-primary/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+              isSelected && !revealed ? "border-primary bg-primary/5 ring-1 ring-primary" : "",
+              isCorrect ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-950/40" : "",
+              isWrongPick ? "border-destructive bg-destructive/10" : "",
+              disabled && !revealed ? "opacity-60" : "",
+            ].join(" ")}
+          >
+            <span
+              className={[
+                "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md border font-semibold text-sm",
+                isSelected && !revealed
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "bg-muted",
+                isCorrect ? "border-emerald-500 bg-emerald-500 text-white" : "",
+                isWrongPick ? "border-destructive bg-destructive text-destructive-foreground" : "",
+              ].join(" ")}
+            >
+              {option.label}
+            </span>
+            <span className="min-w-0 flex-1 text-sm leading-relaxed">
+              <QuestionMarkdown>{option.text}</QuestionMarkdown>
+            </span>
+            {isCorrect && (
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+            )}
+            {isWrongPick && (
+              <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── MCQ result: verdict + correct choice + the SME worked solution ──────────
+
+function McqResultPanel({
+  question,
+  result,
+  chosen,
+  topicTitle,
+  onRetry,
+  onNext,
+  onAskTutorAbout,
+}: {
+  question: StudentQuestionView;
+  result: AttemptResultView;
+  chosen: string | null;
+  topicTitle?: string | null;
+  onRetry: () => void;
+  onNext: () => void;
+  onAskTutorAbout?: (draft: string) => void;
+}) {
+  const [scheme, setScheme] = useState<MarkSchemeRevealView | null>(null);
+  const [schemeLoaded, setSchemeLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .markScheme(question.id)
+      .then((s) => {
+        if (!cancelled) {
+          setScheme(s ?? null);
+          setSchemeLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSchemeLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [question.id]);
+
+  const correctOption = question.options.find((o) => o.label === result.correctOptionLabel);
+
+  return (
+    <div className="space-y-4">
+      <Alert variant={result.correct ? "default" : "destructive"}>
+        {result.correct ? (
+          <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
+        ) : (
+          <XCircle className="size-4" aria-hidden="true" />
+        )}
+        <AlertTitle>
+          {result.correct
+            ? `Correct — ${result.marksAwarded}/${result.marksTotal} marks`
+            : `Not correct — ${result.marksAwarded}/${result.marksTotal} marks`}
+        </AlertTitle>
+        <AlertDescription>
+          {result.correct
+            ? "Your BKT mastery estimate for this topic has been updated."
+            : `Correct answer: ${result.correctOptionLabel}. Your mastery estimate was updated — check “My state” for the misconception flag.`}
+        </AlertDescription>
+      </Alert>
+
+      {revealedGrid(question, chosen, result)}
+
+      {schemeLoaded && scheme && (scheme.generalPoints.length > 0 || scheme.parts.length > 0) && (
+        <div className="rounded-lg border bg-muted/30 p-4">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+            <PenLine className="size-4" aria-hidden="true" /> Worked solution
+          </p>
+          <div className="space-y-2">
+            {scheme.generalPoints.map((p, i) => (
+              <QuestionMarkdown key={`${p.ref ?? "pt"}-${i}`}>{p.text}</QuestionMarkdown>
+            ))}
+            {scheme.parts.flatMap((part) =>
+              part.points.map((p, i) => (
+                <QuestionMarkdown key={`${part.partId}-${p.ref ?? i}`}>{p.text}</QuestionMarkdown>
+              )),
+            )}
+          </div>
+        </div>
+      )}
+
+      {!result.correct && result.implicatedMisconceptionIds.length > 0 && (
+        <Alert>
+          <TriangleAlert className="size-4 text-amber-500" aria-hidden="true" />
+          <AlertTitle>Misconception signal detected</AlertTitle>
+          <AlertDescription>
+            The option you chose matches a documented misconception. The BDT engine
+            raised its probability — a remediation step will be suggested once it
+            becomes active.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={onNext}>Next question</Button>
+        <Button variant="outline" onClick={onRetry}>
+          Retry this question
+        </Button>
+        {onAskTutorAbout && (
+          <Button
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => {
+              const stem = question?.stem.slice(0, 300) ?? "a question";
+              const chosenLabel =
+                question?.options.find((o) => o.id === chosen)?.label ?? "";
+              const correctLabel = result.correctOptionLabel ?? "";
+              onAskTutorAbout(
+                result.correct
+                  ? `I answered this question correctly${
+                      topicTitle ? ` on ${topicTitle}` : ""
+                    }: "${stem}" — I chose ${chosenLabel}, which was the right answer. Can you explain the chemistry behind it and what related ideas I should review to make sure I really understand it?`
+                  : `I got this question wrong${
+                      topicTitle ? ` on ${topicTitle}` : ""
+                    } and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${correctLabel}. Can you explain the chemistry behind the correct answer?`,
+              );
+            }}
+          >
+            <MessagesSquare className="size-4" aria-hidden="true" />
+            Ask tutor about this
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function revealedGrid(
+  question: StudentQuestionView,
+  chosen: string | null,
+  result: AttemptResultView,
+) {
+  const correctOptionId =
+    question.options.find((o) => o.label === result.correctOptionLabel)?.id ?? null;
+  return (
+    <McqChoiceGrid
+      options={question.options}
+      chosen={chosen}
+      onChoose={() => {}}
+      disabled
+      revealed
+      correctOptionId={correctOptionId}
+    />
+  );
+}
+
+// ── Structured result: pending queue + the SME reveal-and-self-mark flow ─────
+
+function StructuredResultPanel({
+  question,
+  result,
+  partAnswers,
+  onNext,
+}: {
+  question: StudentQuestionView;
+  result: StructuredAttemptResultView;
+  partAnswers: Record<string, string>;
+  onNext: () => void;
+}) {
+  const [scheme, setScheme] = useState<MarkSchemeRevealView | null>(null);
+  const [schemeState, setSchemeState] = useState<"idle" | "loading" | "open" | "withheld" | "error">(
+    "idle",
+  );
+  const [selfMarks, setSelfMarks] = useState<Record<string, number>>({});
+  const [selfMarkResult, setSelfMarkResult] = useState<SelfMarkView | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordError, setRecordError] = useState<string | null>(null);
+
+  const parts = question.parts ?? [];
+  const allSelfMarked =
+    parts.length > 0 && parts.every((p) => typeof selfMarks[p.id] === "number");
+  const selfTotal = parts.reduce((sum, p) => sum + (selfMarks[p.id] ?? 0), 0);
+
+  function reveal() {
+    setSchemeState("loading");
+    api
+      .markScheme(question.id)
+      .then((s) => {
+        if (s) {
+          setScheme(s);
+          setSchemeState("open");
+        } else {
+          setSchemeState("withheld");
+        }
+      })
+      .catch(() => setSchemeState("error"));
+  }
+
+  async function recordSelfMarks() {
+    if (!allSelfMarked || !result.attemptId) return;
+    setRecording(true);
+    setRecordError(null);
+    try {
+      const view = await api.selfMarkAttempt(
+        result.attemptId,
+        parts.map((p) => ({ partId: p.id, marksAwarded: selfMarks[p.id] ?? 0 })),
+      );
+      setSelfMarkResult(view);
+    } catch (err) {
+      setRecordError(
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : "Failed to record the self-mark",
+      );
+    } finally {
+      setRecording(false);
+    }
+  }
+
+  if (selfMarkResult) {
+    return (
+      <div className="space-y-4">
+        <Alert>
+          <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
+          <AlertTitle>
+            Self-marked — {selfMarkResult.marksAwarded}/{selfMarkResult.marksTotal} marks
+          </AlertTitle>
+          <AlertDescription>
+            Your self-assessment is recorded and your mastery estimate has been
+            updated{selfMarkResult.evidenceFired ? " (evidence fired)" : ""}. Your teacher
+            can still review and override it later — self-marks never enter the
+            teacher κ calibration sample.
+          </AlertDescription>
+        </Alert>
+        <ul className="space-y-1 text-sm text-muted-foreground">
+          {selfMarkResult.parts.map((part) => (
+            <li key={part.partId} className="flex items-center justify-between gap-2">
+              <span>Part {part.label}</span>
+              <span className="text-xs">
+                {part.marksAwarded}/{part.marksPossible} marks (self-assessed)
+              </span>
+            </li>
+          ))}
+        </ul>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onNext}>Next question</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Alert>
+        <Clock className="size-4 text-blue-600" aria-hidden="true" />
+        <AlertTitle>Submitted — {result.marksPossible} marks</AlertTitle>
+        <AlertDescription>
+          Your written answers are stored and queued for teacher marking. Or mark
+          it yourself now against the mark scheme — Save-My-Exams style.
+        </AlertDescription>
+      </Alert>
+
+      {schemeState === "idle" && (
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="gap-1.5" onClick={reveal}>
+            <PenLine className="size-4" aria-hidden="true" />
+            Reveal mark scheme &amp; self-mark
+          </Button>
+          <Button variant="ghost" onClick={onNext}>
+            Skip — next question
+          </Button>
+        </div>
+      )}
+
+      {schemeState === "loading" && <Skeleton className="h-24 w-full" />}
+
+      {schemeState === "withheld" && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          The mark scheme isn&apos;t open for self-marking yet (awaiting teacher
+          validation). Your answers stay in the teacher marking queue.
+        </p>
+      )}
+
+      {schemeState === "error" && (
+        <p className="text-sm text-destructive">
+          The mark scheme couldn&apos;t be loaded — your answers stay in the teacher
+          marking queue.
+        </p>
+      )}
+
+      {schemeState === "open" && scheme && (
+        <div className="space-y-4">
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <p className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
+              <PenLine className="size-4" aria-hidden="true" /> Mark scheme — tick what you
+              earned
+            </p>
+            <div className="space-y-4">
+              {parts.map((part) => {
+                const schemePart = scheme.parts.find((sp) => sp.partId === part.id);
+                return (
+                  <div key={part.id} className="space-y-2 rounded-md border bg-background p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold">
+                        <span className="inline-flex size-6 items-center justify-center rounded border bg-muted font-mono text-xs">
+                          {part.label}
+                        </span>
+                        your answer
+                      </span>
+                      <MarksStepper
+                        value={selfMarks[part.id]}
+                        max={part.marks}
+                        onChange={(v) => setSelfMarks((prev) => ({ ...prev, [part.id]: v }))}
+                      />
+                    </div>
+                    <p className="whitespace-pre-wrap rounded border bg-muted/40 p-2 text-xs text-muted-foreground">
+                      {(partAnswers[part.id] ?? "").trim() || "(left blank)"}
+                    </p>
+                    {schemePart && schemePart.points.length > 0 ? (
+                      <ul className="space-y-1.5">
+                        {schemePart.points.map((p, i) => (
+                          <li
+                            key={`${p.ref ?? "pt"}-${i}`}
+                            className="flex items-start gap-2 text-sm"
+                          >
+                            <span className="mt-0.5 shrink-0 rounded border border-slate-300 bg-slate-50 px-1 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+                              {p.ref ?? "•"}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <QuestionMarkdown>{p.text}</QuestionMarkdown>
+                            </span>
+                            <span className="mt-0.5 shrink-0 text-[11px] text-muted-foreground">
+                              {p.marks} mark{p.marks === 1 ? "" : "s"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No scheme points published for this part.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {scheme.generalPoints.length > 0 && (
+              <div className="mt-3 rounded-md border border-dashed p-3">
+                <p className="mb-1 text-xs font-semibold text-muted-foreground">
+                  General marking points
+                </p>
+                {scheme.generalPoints.map((p, i) => (
+                  <QuestionMarkdown key={`${p.ref ?? "gp"}-${i}`}>{p.text}</QuestionMarkdown>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {recordError && (
+            <Alert variant="destructive">
+              <AlertDescription>{recordError}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={recordSelfMarks} disabled={!allSelfMarked || recording}>
+              {recording ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <CheckCircle2 className="size-4" aria-hidden="true" />
+              )}
+              Record my self-marks{allSelfMarked ? ` (${selfTotal}/${result.marksPossible})` : ""}
+            </Button>
+            <Button variant="ghost" onClick={onNext}>
+              Skip — leave it for the teacher
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Self-marking updates your mastery estimate immediately. It is recorded
+            separately from teacher marks (never in the κ calibration sample), and
+            your teacher can still override it.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MarksStepper({
+  value,
+  max,
+  onChange,
+}: {
+  value: number | undefined;
+  max: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1" role="group" aria-label="self-awarded marks">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="size-7"
+        disabled={value === undefined ? true : value <= 0}
+        onClick={() => onChange(Math.max(0, (value ?? 0) - 1))}
+        aria-label="fewer marks"
+      >
+        <Minus className="size-3.5" aria-hidden="true" />
+      </Button>
+      <span className="min-w-14 text-center text-sm font-semibold tabular-nums">
+        {value === undefined ? `0/${max}` : `${value}/${max}`}
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="size-7"
+        disabled={value !== undefined && value >= max}
+        onClick={() => onChange(Math.min(max, (value ?? 0) + 1))}
+        aria-label="more marks"
+      >
+        <Plus className="size-3.5" aria-hidden="true" />
+      </Button>
+    </span>
+  );
+}
+
+// ── Question help: the notes joined through spec-point codes ─────────────────
+
+function QuestionHelpPanel({ question }: { question: StudentQuestionView }) {
+  const [open, setOpen] = useState(false);
+  const [index, setIndex] = useState<RevisionNotesIndexView | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [openNote, setOpenNote] = useState<string | null>(null);
+
+  const codes = question.specPointCodes ?? [];
+
+  useEffect(() => {
+    if (!open || index || failed) return;
+    let cancelled = false;
+    api
+      .revisionNotes()
+      .then((idx) => {
+        if (!cancelled) setIndex(idx);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, index, failed]);
+
+  const matches =
+    index && codes.length > 0
+      ? index.topics
+          .flatMap((t) =>
+            t.subtopics.flatMap((s) =>
+              s.notes
+                .filter((n) => n.specPointCodes.some((c) => codes.includes(c)))
+                .map((n) => ({ note: n, topic: t.title, subtopic: s.title })),
+            ),
+          )
+          .slice(0, 6)
+      : [];
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border bg-muted/20">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          <BookOpen className="size-4" aria-hidden="true" />
+          {codes.length > 0
+            ? `Help with this question — related revision notes (${codes.length} spec point${codes.length === 1 ? "" : "s"})`
+            : "Help with this question"}
+          <ChevronDown
+            className={`ml-auto size-4 transition-transform ${open ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="px-3 pb-3">
+        <p className="mb-2 text-[11px] text-muted-foreground">
+          Looking things up is allowed — keep your confidence rating honest. Notes are
+          joined through the question&apos;s specification points
+          {codes.length > 0 ? ` (${codes.join(", ")})` : ""}.
+        </p>
+        {failed ? (
+          <p className="text-xs text-muted-foreground">
+            Revision notes aren&apos;t available right now.
+          </p>
+        ) : !index ? (
+          <Skeleton className="h-12 w-full" />
+        ) : matches.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {codes.length === 0
+              ? "This question isn't mapped to specification points yet — no notes to join."
+              : "No revision notes cover this question's specification points yet."}
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {matches.map(({ note, topic, subtopic }) => (
+              <li key={note.noteId}>
+                <NoteDisclosure
+                  noteId={note.noteId}
+                  title={note.title}
+                  path={`${topic} · ${subtopic}`}
+                  matchedCodes={note.specPointCodes.filter((c) => codes.includes(c))}
+                  open={openNote === note.noteId}
+                  onToggle={() => setOpenNote(openNote === note.noteId ? null : note.noteId)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function NoteDisclosure({
+  noteId,
+  title,
+  path,
+  matchedCodes,
+  open,
+  onToggle,
+}: {
+  noteId: string;
+  title: string;
+  path: string;
+  matchedCodes: string[];
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const [body, setBody] = useState<RevisionNoteBodyView | null>(null);
+
+  useEffect(() => {
+    if (!open || body) return;
+    let cancelled = false;
+    api
+      .revisionNote(noteId)
+      .then((b) => {
+        if (!cancelled) setBody(b);
+      })
+      .catch(() => {
+        /* the row stays collapsed on failure — honest, no fake content */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, noteId, body]);
+
+  return (
+    <div className="rounded-md border bg-background">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{title}</span>
+          <span className="block truncate text-[11px] text-muted-foreground">{path}</span>
+        </span>
+        <span className="flex shrink-0 gap-1">
+          {matchedCodes.slice(0, 3).map((c) => (
+            <Badge key={c} variant="secondary" className="font-mono text-[10px]">
+              {c}
+            </Badge>
+          ))}
+        </span>
+        <ChevronDown
+          className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden="true"
+        />
+      </button>
+      {open && (
+        <div className="max-h-80 overflow-y-auto border-t px-3 py-2">
+          {body ? <QuestionMarkdown>{body.bodyMd}</QuestionMarkdown> : <Skeleton className="h-24 w-full" />}
+        </div>
+      )}
     </div>
   );
 }

@@ -61,6 +61,9 @@ export interface StudentQuestionView {
   examPaperId: string | null;
   options: OptionView[];
   parts: PartView[];
+  /** curriculum codes (PRIMARY first) — the question-help panel joins these
+   *  to revision notes client-side (ADR-026); empty for unmapped questions */
+  specPointCodes?: string[];
 }
 
 // ── SME-style mark-scheme reveal (policy-gated learner surface) ──
@@ -96,6 +99,24 @@ export interface StructuredAttemptPartResult {
   marksPossible: number;
   markingState: string;
   marksAwarded: number | null;
+}
+
+// ── SME-style self-mark (ADR-026 practice tranche, κ-excluded provenance) ──
+
+export interface SelfMarkPartView {
+  partId: string;
+  label: string;
+  marksAwarded: number;
+  marksPossible: number;
+  markingState: string;
+}
+
+export interface SelfMarkView {
+  attemptId: string;
+  marksAwarded: number;
+  marksTotal: number;
+  evidenceFired: boolean;
+  parts: SelfMarkPartView[];
 }
 
 export interface StructuredAttemptResultView {

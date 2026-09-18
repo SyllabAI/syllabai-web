@@ -31,6 +31,7 @@ import type {
   PrerequisiteView,
   SmartLessonView,
   SmartMarkView,
+  SelfMarkView,
   StudentQuestionView,
   StructuredAttemptResultView,
   SubjectView,
@@ -191,6 +192,33 @@ export function fetchRevisionNoteAsset(filename: string): Promise<string> {
   return promise;
 }
 
+/**
+ * Question diagram assets (SME corpus, ADR-026) — same authenticated-blob
+ * pattern as revision-note assets, served from the question-asset endpoint
+ * that ships with the corpus package.
+ */
+const questionAssetCache = new Map<string, Promise<string>>();
+
+export function fetchQuestionAsset(filename: string): Promise<string> {
+  const cached = questionAssetCache.get(filename);
+  if (cached) return cached;
+  const promise = (async () => {
+    const headers = new Headers();
+    const token = getToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch(
+      apiPath(`/api/v1/content/question-assets/${encodeURIComponent(filename)}`),
+      { headers },
+    );
+    if (!response.ok) throw new ApiError(response.status, `Asset failed (${response.status})`);
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  })();
+  questionAssetCache.set(filename, promise);
+  promise.catch(() => questionAssetCache.delete(filename));
+  return promise;
+}
+
 export const api = {
   login: (email: string, password: string) =>
     request<AuthResponse>("/api/v1/auth/login", {
@@ -250,6 +278,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // SME-style self-mark (ADR-026 practice tranche): reveal the validated
+  // scheme, self-award every part in one shot. Single-shot by design — a
+  // settled attempt (teacher- or self-marked) returns 409; self-marks are
+  // recorded separately from teacher human marks so the κ sample stays
+  // teacher-only.
+  selfMarkAttempt: (
+    attemptId: string,
+    parts: { partId: string; marksAwarded: number }[],
+    comment?: string | null,
+  ) =>
+    request<SelfMarkView>(
+      `/api/v1/learners/me/attempts/${encodeURIComponent(attemptId)}/self-mark`,
+      {
+        method: "POST",
+        body: JSON.stringify({ parts, comment: comment ?? null }),
+      },
+    ),
 
   learnerState: () => request<LearnerStateView>("/api/v1/learners/me/state"),
 
