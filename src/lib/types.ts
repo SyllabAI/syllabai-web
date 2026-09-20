@@ -119,6 +119,54 @@ export interface SelfMarkView {
   parts: SelfMarkPartView[];
 }
 
+// ── Student Smart Mark (F-047 learner half: AI marking + Explain/Improve) ──
+
+export interface SmartMarkPointDecision {
+  ref: string | null;
+  pointText: string | null;
+  marks: number;
+  awarded: boolean;
+  evidence: string;
+  rationale: string;
+}
+
+export interface SmartMarkPartResult {
+  partId: string;
+  label: string;
+  marksAwarded: number;
+  marksPossible: number;
+  markingState: string;
+  /** κ release gate at marking time — true = marks drove mastery evidence */
+  authoritative: boolean;
+  confidence: number | null;
+  modelId: string | null;
+  validationPassed: boolean;
+  failureReason: string | null;
+  breakdown: SmartMarkPointDecision[];
+}
+
+export interface SmartMarkAttemptView {
+  attemptId: string;
+  questionId: string;
+  schemeValidationState: "SUGGESTED" | "VALIDATED" | "REJECTED" | "FLAGGED";
+  marksPossible: number;
+  parts: SmartMarkPartResult[];
+}
+
+export interface SmartMarkFeedbackExplanation {
+  partId: string;
+  explanation: string;
+  modelId: string | null;
+  generatedAt: string;
+}
+
+export interface SmartMarkImprovementPlan {
+  partId: string;
+  plan: string;
+  modelId: string | null;
+  generatedAt: string;
+}
+
 export interface StructuredAttemptResultView {
   attemptId: string;
   questionId: string;

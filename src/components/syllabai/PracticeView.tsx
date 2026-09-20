@@ -23,6 +23,7 @@ import {
   PenLine,
   Plus,
   Send,
+  Sparkles,
   Timer,
   TriangleAlert,
   XCircle,
@@ -38,6 +39,7 @@ import type {
   StructuredAttemptResultView,
 } from "@/lib/types";
 import { QuestionMarkdown } from "./QuestionMarkdown";
+import { SmartMarkPanel } from "./SmartMarkPanel";
 
 const CONFIDENCE_LABELS = ["", "guessing", "unsure", "getting there", "confident", "certain"];
 
@@ -628,6 +630,9 @@ function StructuredResultPanel({
   const [selfMarkResult, setSelfMarkResult] = useState<SelfMarkView | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
+  // student Smart Mark (F-047 learner half): the AI-marking alternative to
+  // reveal-and-self-mark — once opened it owns the flow until "Next question"
+  const [smartMarkOpened, setSmartMarkOpened] = useState(false);
 
   const parts = question.parts ?? [];
   const allSelfMarked =
@@ -713,16 +718,27 @@ function StructuredResultPanel({
         </AlertDescription>
       </Alert>
 
-      {schemeState === "idle" && (
+      {schemeState === "idle" && !smartMarkOpened && (
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" className="gap-1.5" onClick={reveal}>
             <PenLine className="size-4" aria-hidden="true" />
             Reveal mark scheme &amp; self-mark
           </Button>
-          <Button variant="ghost" onClick={onNext}>
-            Skip — next question
+          <Button className="gap-1.5" onClick={() => setSmartMarkOpened(true)}>
+            <Sparkles className="size-4" aria-hidden="true" />
+            Open Smart Mark
           </Button>
         </div>
+      )}
+
+      {schemeState === "idle" && smartMarkOpened && (
+        <SmartMarkPanel
+          question={question}
+          attemptId={result.attemptId}
+          marksPossible={result.marksPossible}
+          partAnswers={partAnswers}
+          onNext={onNext}
+        />
       )}
 
       {schemeState === "loading" && <Skeleton className="h-24 w-full" />}

@@ -32,6 +32,9 @@ import type {
   SmartLessonView,
   SmartMarkView,
   SelfMarkView,
+  SmartMarkAttemptView,
+  SmartMarkFeedbackExplanation,
+  SmartMarkImprovementPlan,
   StudentQuestionView,
   StructuredAttemptResultView,
   SubjectView,
@@ -613,6 +616,28 @@ export const api = {
   markScheme: (questionId: string) =>
     request<MarkSchemeRevealView | undefined>(
       `/api/v1/questions/${encodeURIComponent(questionId)}/mark-scheme`,
+    ),
+
+  // ── student Smart Mark (F-047 learner half) — button-driven, never a chat
+  // box: the marking run and the two feedback actions take no request body,
+  // grounding is resolved server-side from opaque ids. 409 = pre-settlement
+  // only (self/teacher mark already settled) or scheme pending validation.
+  smartMarkAttempt: (attemptId: string) =>
+    request<SmartMarkAttemptView>(
+      `/api/v1/learners/me/attempts/${encodeURIComponent(attemptId)}/smart-mark`,
+      { method: "POST" },
+    ),
+
+  explainSmartFeedback: (attemptId: string, partId: string) =>
+    request<SmartMarkFeedbackExplanation>(
+      `/api/v1/learners/me/attempts/${encodeURIComponent(attemptId)}/parts/${encodeURIComponent(partId)}/feedback-explanation`,
+      { method: "POST" },
+    ),
+
+  smartImprovementPlan: (attemptId: string, partId: string) =>
+    request<SmartMarkImprovementPlan>(
+      `/api/v1/learners/me/attempts/${encodeURIComponent(attemptId)}/parts/${encodeURIComponent(partId)}/improvement-plan`,
+      { method: "POST" },
     ),
 
   // ── revision notes (SME-style corpus, learner-scoped, authenticated-only) ──
