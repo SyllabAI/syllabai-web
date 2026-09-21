@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   CheckCircle2,
   CircleAlert,
+  CircleDot,
   Lightbulb,
   Loader2,
   MessagesSquare,
@@ -215,41 +216,47 @@ function PartResultCard({
         </p>
       ) : (
         <ul className="space-y-2">
-          {part.breakdown.map((point, i) => (
-            <li
-              key={`${point.ref ?? "pt"}-${i}`}
-              className="rounded-md border bg-background p-2.5"
-            >
-              <div className="flex items-start gap-2">
-                {point.awarded ? (
-                  <CheckCircle2
-                    className="mt-0.5 size-4 shrink-0 text-emerald-600"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <XCircle className="mt-0.5 size-4 shrink-0 text-red-500" aria-hidden="true" />
-                )}
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="text-sm">
-                    {point.pointText ? (
-                      <QuestionMarkdown>{point.pointText}</QuestionMarkdown>
-                    ) : (
-                      <span className="font-mono text-xs">{point.ref ?? "point"}</span>
-                    )}{" "}
-                    <span className="text-[11px] text-muted-foreground">
-                      · {point.marks} mark{point.marks === 1 ? "" : "s"}
-                    </span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">{point.rationale}</p>
-                  {point.awarded && point.evidence ? (
-                    <p className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-                      Your evidence: “{point.evidence}”
+          {part.breakdown.map((point, i) => {
+            const full = point.awarded && point.marksAwarded >= point.marks;
+            const partial = point.marksAwarded > 0 && point.marksAwarded < point.marks;
+            return (
+              <li
+                key={`${point.ref ?? "pt"}-${i}`}
+                className="rounded-md border bg-background p-2.5"
+              >
+                <div className="flex items-start gap-2">
+                  {full ? (
+                    <CheckCircle2
+                      className="mt-0.5 size-4 shrink-0 text-emerald-600"
+                      aria-hidden="true"
+                    />
+                  ) : partial ? (
+                    <CircleDot
+                      className="mt-0.5 size-4 shrink-0 text-amber-500"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <XCircle className="mt-0.5 size-4 shrink-0 text-red-500" aria-hidden="true" />
+                  )}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="text-sm">
+                      {point.pointLabel ?? point.ref ?? "point"}{" "}
+                      <span className="text-[11px] font-medium text-muted-foreground">
+                        · {point.marksAwarded}/{point.marks}{" "}
+                        mark{point.marks === 1 ? "" : "s"}
+                      </span>
                     </p>
-                  ) : null}
+                    <p className="text-xs text-muted-foreground">{point.rationale}</p>
+                    {point.marksAwarded > 0 && point.evidence ? (
+                      <p className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        Your evidence: “{point.evidence}”
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
 

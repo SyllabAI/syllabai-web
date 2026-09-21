@@ -151,8 +151,12 @@ export interface SelfMarkView {
 
 export interface SmartMarkPointDecision {
   ref: string | null;
-  pointText: string | null;
+  /** compact scheme-leak-safe label (first meaningful line of the point text) */
+  pointLabel: string | null;
+  /** marks the point is worth */
   marks: number;
+  /** marks earned within the point — partial credit since pipeline 1.2.0 */
+  marksAwarded: number;
   awarded: boolean;
   evidence: string;
   rationale: string;
