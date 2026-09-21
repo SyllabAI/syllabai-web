@@ -8,6 +8,7 @@ import { DashboardView } from "@/components/syllabai/DashboardView";
 import { HistoryView } from "@/components/syllabai/HistoryView";
 import { MasteryMap } from "@/components/syllabai/MasteryMap";
 import { PracticeView } from "@/components/syllabai/PracticeView";
+import { ExamQuestionsView } from "@/components/syllabai/ExamQuestionsView";
 import { SmartLessonView } from "@/components/syllabai/SmartLessonView";
 import { StateView } from "@/components/syllabai/StateView";
 import { TutorChatView, type TutorChatMessage } from "@/components/syllabai/TutorChatView";
@@ -34,6 +35,7 @@ import {
   LayoutDashboard,
   LineChart,
   MessagesSquare,
+  ScrollText,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -326,7 +328,7 @@ export default function SyllabAiWorkbench() {
       <main className="mx-auto w-full max-w-5xl flex-1 scroll-mt-16 px-4 py-6">
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList
-            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-11" : "grid-cols-10"}`}
+            className={`mb-4 grid w-full ${isTeacher ? "grid-cols-12" : "grid-cols-11"}`}
           >
             <TabsTrigger value="dashboard" className="gap-1.5">
               <LayoutDashboard className="size-4" aria-hidden="true" />
@@ -339,6 +341,10 @@ export default function SyllabAiWorkbench() {
             <TabsTrigger value="practice" className="gap-1.5">
               <GraduationCap className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">Practice</span>
+            </TabsTrigger>
+            <TabsTrigger value="exam" className="gap-1.5">
+              <ScrollText className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Exam Questions</span>
             </TabsTrigger>
             <TabsTrigger value="history" className="gap-1.5">
               <ClipboardList className="size-4" aria-hidden="true" />
@@ -407,6 +413,15 @@ export default function SyllabAiWorkbench() {
               rootId={rootId}
               subjectName={subjectName}
               onClearTopic={() => setPracticeTopic(null)}
+              onAskTutorAbout={onAskTutorAbout}
+            />
+          </TabsContent>
+          <TabsContent value="exam">
+            <ExamQuestionsView
+              rootId={rootId}
+              graph={graph}
+              history={history}
+              onAttemptSubmitted={handleAttemptSubmitted}
               onAskTutorAbout={onAskTutorAbout}
             />
           </TabsContent>

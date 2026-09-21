@@ -29,6 +29,7 @@ import type {
   NextBestActionsView,
   NodeView,
   PrerequisiteView,
+  QuestionTopicTaxonomyView,
   SmartLessonView,
   SmartMarkView,
   SelfMarkView,
@@ -255,6 +256,14 @@ export const api = {
     const qs = params.toString();
     return request<StudentQuestionView[]>(`/api/v1/questions${qs ? `?${qs}` : ""}`);
   },
+
+  // session-112: the servable-question taxonomy (sections → topics with
+  // reachable counts) — drives the exam-questions sidebar and the practice
+  // topic picker. Counts follow the same rule as the list itself.
+  questionTaxonomy: (rootId?: string) =>
+    request<QuestionTopicTaxonomyView>(
+      `/api/v1/questions/topics${rootId ? `?rootId=${encodeURIComponent(rootId)}` : ""}`,
+    ),
 
   submitAttempt: (body: {
     questionId: string;

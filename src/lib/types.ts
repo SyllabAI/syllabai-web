@@ -68,6 +68,34 @@ export interface StudentQuestionView {
 
 // ── SME-style mark-scheme reveal (policy-gated learner surface) ──
 
+// ── Servable-question taxonomy (session-112, mirrors core QuestionTopicTaxonomyView) ──
+
+/** One browsable topic node with its servable-question census. The counts are
+ *  REACHABLE counts (primary + secondary mappings, deduped) — a topic's
+ *  questionCount is exactly the length of the list clicking it loads. */
+export interface QuestionTaxonomyTopic {
+  nodeId: string;
+  code: string;
+  title: string;
+  questionCount: number;
+  mcqCount: number;
+  structuredCount: number;
+}
+
+/** One syllabus section (UNIT node) with its question-bearing topics. */
+export interface QuestionTaxonomySection {
+  nodeId: string;
+  code: string;
+  title: string;
+  topics: QuestionTaxonomyTopic[];
+}
+
+/** GET /api/v1/questions/topics response — the exam-questions browser sidebar
+ *  and the practice topic picker, both code-ordered server-side. */
+export interface QuestionTopicTaxonomyView {
+  sections: QuestionTaxonomySection[];
+}
+
 export interface MarkSchemePointView {
   ref: string | null;
   text: string;

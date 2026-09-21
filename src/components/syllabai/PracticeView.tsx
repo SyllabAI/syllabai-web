@@ -5,23 +5,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
-  BookOpen,
   CheckCircle2,
-  ChevronDown,
   Clock,
   Loader2,
   MessagesSquare,
-  Minus,
   PenLine,
-  Plus,
   Send,
   Sparkles,
   Timer,
@@ -32,12 +28,13 @@ import { api, ApiError } from "@/lib/api";
 import type {
   AttemptResultView,
   MarkSchemeRevealView,
-  RevisionNoteBodyView,
-  RevisionNotesIndexView,
+  QuestionTaxonomyTopic,
   SelfMarkView,
   StudentQuestionView,
   StructuredAttemptResultView,
 } from "@/lib/types";
+import { MarksStepper } from "./MarksStepper";
+import { QuestionHelpPanel } from "./QuestionHelpPanel";
 import { QuestionMarkdown } from "./QuestionMarkdown";
 import { SmartMarkPanel } from "./SmartMarkPanel";
 
@@ -77,6 +74,33 @@ export function PracticeView({
   const [error, setError] = useState<string | null>(null);
   const startedAt = useRef<number>(Date.now());
 
+  // session-112 topic picker: the taxonomy (same endpoint the exam-questions
+  // sidebar uses) lets the learner CHOOSE a topic inside practice instead of
+  // relying on a dashboard deep-link. pickerTouched keeps the deep-link in
+  // charge until the learner actually picks something.
+  const [taxonomyTopics, setTaxonomyTopics] = useState<QuestionTaxonomyTopic[] | null>(null);
+  const [pickedTopicId, setPickedTopicId] = useState<string | null>(null);
+  const [pickerTouched, setPickerTouched] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .questionTaxonomy(rootId ?? undefined)
+      .then((view) => {
+        if (!cancelled) setTaxonomyTopics(view.sections.flatMap((s) => s.topics));
+      })
+      .catch(() => {
+        // the picker is an affordance — practice must work without it
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rootId]);
+
+  // the effective topic: the learner's pick wins once made, then the deep-link
+  const effectiveTopicId = pickerTouched ? pickedTopicId : topicNodeId;
+  const effectiveTopic = taxonomyTopics?.find((t) => t.nodeId === effectiveTopicId) ?? null;
+
   useEffect(() => {
     let cancelled = false;
     setIndex(0);
@@ -94,8 +118,8 @@ export function PracticeView({
     (async () => {
       try {
         const list = await api.questions(
-          topicNodeId ?? undefined,
-          topicNodeId ? undefined : (rootId ?? undefined),
+          effectiveTopicId ?? undefined,
+          effectiveTopicId ? undefined : (rootId ?? undefined),
         );
         if (!cancelled) setQuestions(list);
       } catch (err) {
@@ -105,7 +129,7 @@ export function PracticeView({
     return () => {
       cancelled = true;
     };
-  }, [topicNodeId, rootId]);
+  }, [effectiveTopicId, rootId]);
 
   const question = questions?.[index] ?? null;
   const isStructured = question?.type === "STRUCTURED";
@@ -194,49 +218,65 @@ export function PracticeView({
   }
 
   if (!question) {
-    if (topicNodeId) {
+    if (effectiveTopicId) {
       return (
-        <Alert>
-          <AlertTitle>No questions on this topic yet</AlertTitle>
-          <AlertDescription>
-            {topicTitle
-              ? `No validated questions are linked to “${topicTitle}” yet — questions surface here once validated content covers it.`
-              : "No validated questions are linked to this topic yet."}
-          </AlertDescription>
-          {onClearTopic && (
-            <Button variant="outline" size="sm" className="mt-2" onClick={onClearTopic}>
-              Practise all topics
-            </Button>
-          )}
-        </Alert>
+        <div className="space-y-4">
+          <TopicPicker
+            taxonomyTopics={taxonomyTopics}
+            value={effectiveTopicId}
+            onChange={(v) => {
+              setPickerTouched(true);
+              setPickedTopicId(v);
+            }}
+            fallbackTitle={topicTitle}
+          />
+          <Alert>
+            <AlertTitle>No questions on this topic yet</AlertTitle>
+            <AlertDescription>
+              {effectiveTopic?.title || topicTitle
+                ? `No validated questions are linked to “${effectiveTopic?.title ?? topicTitle}” yet — questions surface here once validated content covers it.`
+                : "No validated questions are linked to this topic yet."}
+            </AlertDescription>
+          </Alert>
+        </div>
       );
     }
     return (
-      <Alert>
-        <AlertTitle>No validated questions in this subject yet</AlertTitle>
-        <AlertDescription>
-          {subjectName
-            ? `No validated questions are linked to ${subjectName} yet — practice appears once validated content covers it.`
-            : "The question bank is empty — run the Flyway seed migrations."}
-        </AlertDescription>
-      </Alert>
+      <div className="space-y-4">
+        <TopicPicker
+          taxonomyTopics={taxonomyTopics}
+          value={null}
+          onChange={(v) => {
+            setPickerTouched(true);
+            setPickedTopicId(v);
+          }}
+          fallbackTitle={topicTitle}
+        />
+        <Alert>
+          <AlertTitle>No validated questions in this subject yet</AlertTitle>
+          <AlertDescription>
+            {subjectName
+              ? `No validated questions are linked to ${subjectName} yet — practice appears once validated content covers it.`
+              : "The question bank is empty — run the Flyway seed migrations."}
+          </AlertDescription>
+        </Alert>
+      </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {topicNodeId && (
-        <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-1.5">
-          <p className="min-w-0 truncate text-xs text-muted-foreground">
-            Practising topic: <span className="font-medium text-foreground">{topicTitle ?? topicNodeId.slice(0, 8)}</span>
-          </p>
-          {onClearTopic && (
-            <Button variant="ghost" size="sm" className="h-6 shrink-0 text-xs" onClick={onClearTopic}>
-              All topics
-            </Button>
-          )}
-        </div>
-      )}
+      <TopicPicker
+        taxonomyTopics={taxonomyTopics}
+        value={effectiveTopicId}
+        onChange={(v) => {
+          setPickerTouched(true);
+          setPickedTopicId(v);
+          // picking "all topics" also releases the dashboard deep-link
+          if (v === null) onClearTopic?.();
+        }}
+        fallbackTitle={topicTitle}
+      />
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
@@ -277,7 +317,7 @@ export function PracticeView({
               question={question}
               result={result}
               chosen={chosen}
-              topicTitle={topicTitle}
+              topicTitle={effectiveTopic?.title ?? topicTitle}
               onRetry={() => {
                 setResult(null);
                 setChosen(null);
@@ -855,202 +895,49 @@ function StructuredResultPanel({
   );
 }
 
-function MarksStepper({
+
+// ── topic picker: the taxonomy as an in-practice Select (session-112) ───────
+
+function TopicPicker({
+  taxonomyTopics,
   value,
-  max,
   onChange,
+  fallbackTitle,
 }: {
-  value: number | undefined;
-  max: number;
-  onChange: (v: number) => void;
+  taxonomyTopics: QuestionTaxonomyTopic[] | null;
+  /** the effective topic node id, or null for "all topics" */
+  value: string | null;
+  onChange: (nodeId: string | null) => void;
+  /** deep-linked title, shown when the topic isn't in the taxonomy (0 questions) */
+  fallbackTitle?: string | null;
 }) {
+  const inTaxonomy = taxonomyTopics?.some((t) => t.nodeId === value) ?? false;
   return (
-    <span className="inline-flex items-center gap-1" role="group" aria-label="self-awarded marks">
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        className="size-7"
-        disabled={value === undefined ? true : value <= 0}
-        onClick={() => onChange(Math.max(0, (value ?? 0) - 1))}
-        aria-label="fewer marks"
+    <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5">
+      <Select
+        value={value ?? "all"}
+        onValueChange={(v) => onChange(v === "all" ? null : v)}
       >
-        <Minus className="size-3.5" aria-hidden="true" />
-      </Button>
-      <span className="min-w-14 text-center text-sm font-semibold tabular-nums">
-        {value === undefined ? `0/${max}` : `${value}/${max}`}
-      </span>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        className="size-7"
-        disabled={value !== undefined && value >= max}
-        onClick={() => onChange(Math.min(max, (value ?? 0) + 1))}
-        aria-label="more marks"
-      >
-        <Plus className="size-3.5" aria-hidden="true" />
-      </Button>
-    </span>
-  );
-}
-
-// ── Question help: the notes joined through spec-point codes ─────────────────
-
-function QuestionHelpPanel({ question }: { question: StudentQuestionView }) {
-  const [open, setOpen] = useState(false);
-  const [index, setIndex] = useState<RevisionNotesIndexView | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [openNote, setOpenNote] = useState<string | null>(null);
-
-  const codes = question.specPointCodes ?? [];
-
-  useEffect(() => {
-    if (!open || index || failed) return;
-    let cancelled = false;
-    api
-      .revisionNotes()
-      .then((idx) => {
-        if (!cancelled) setIndex(idx);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, index, failed]);
-
-  const matches =
-    index && codes.length > 0
-      ? index.topics
-          .flatMap((t) =>
-            t.subtopics.flatMap((s) =>
-              s.notes
-                .filter((n) => n.specPointCodes.some((c) => codes.includes(c)))
-                .map((n) => ({ note: n, topic: t.title, subtopic: s.title })),
-            ),
-          )
-          .slice(0, 6)
-      : [];
-
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border bg-muted/20">
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-muted-foreground hover:text-foreground"
-        >
-          <BookOpen className="size-4" aria-hidden="true" />
-          {codes.length > 0
-            ? `Help with this question — related revision notes (${codes.length} spec point${codes.length === 1 ? "" : "s"})`
-            : "Help with this question"}
-          <ChevronDown
-            className={`ml-auto size-4 transition-transform ${open ? "rotate-180" : ""}`}
-            aria-hidden="true"
-          />
-        </button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="px-3 pb-3">
-        <p className="mb-2 text-[11px] text-muted-foreground">
-          Looking things up is allowed — keep your confidence rating honest. Notes are
-          joined through the question&apos;s specification points
-          {codes.length > 0 ? ` (${codes.join(", ")})` : ""}.
-        </p>
-        {failed ? (
-          <p className="text-xs text-muted-foreground">
-            Revision notes aren&apos;t available right now.
-          </p>
-        ) : !index ? (
-          <Skeleton className="h-12 w-full" />
-        ) : matches.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            {codes.length === 0
-              ? "This question isn't mapped to specification points yet — no notes to join."
-              : "No revision notes cover this question's specification points yet."}
-          </p>
-        ) : (
-          <ul className="space-y-1.5">
-            {matches.map(({ note, topic, subtopic }) => (
-              <li key={note.noteId}>
-                <NoteDisclosure
-                  noteId={note.noteId}
-                  title={note.title}
-                  path={`${topic} · ${subtopic}`}
-                  matchedCodes={note.specPointCodes.filter((c) => codes.includes(c))}
-                  open={openNote === note.noteId}
-                  onToggle={() => setOpenNote(openNote === note.noteId ? null : note.noteId)}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
-
-function NoteDisclosure({
-  noteId,
-  title,
-  path,
-  matchedCodes,
-  open,
-  onToggle,
-}: {
-  noteId: string;
-  title: string;
-  path: string;
-  matchedCodes: string[];
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const [body, setBody] = useState<RevisionNoteBodyView | null>(null);
-
-  useEffect(() => {
-    if (!open || body) return;
-    let cancelled = false;
-    api
-      .revisionNote(noteId)
-      .then((b) => {
-        if (!cancelled) setBody(b);
-      })
-      .catch(() => {
-        /* the row stays collapsed on failure — honest, no fake content */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, noteId, body]);
-
-  return (
-    <div className="rounded-md border bg-background">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{title}</span>
-          <span className="block truncate text-[11px] text-muted-foreground">{path}</span>
-        </span>
-        <span className="flex shrink-0 gap-1">
-          {matchedCodes.slice(0, 3).map((c) => (
-            <Badge key={c} variant="secondary" className="font-mono text-[10px]">
-              {c}
-            </Badge>
+        <SelectTrigger className="h-8 w-full max-w-72 bg-background text-sm" aria-label="Practise topic">
+          <SelectValue placeholder={taxonomyTopics === null ? "Loading topics…" : "Topic"} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All topics</SelectItem>
+          {value && !inTaxonomy && (
+            <SelectItem value={value}>{fallbackTitle ?? "Selected topic"}</SelectItem>
+          )}
+          {(taxonomyTopics ?? []).map((topic) => (
+            <SelectItem key={topic.nodeId} value={topic.nodeId}>
+              {topic.title} ({topic.questionCount})
+            </SelectItem>
           ))}
-        </span>
-        <ChevronDown
-          className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-          aria-hidden="true"
-        />
-      </button>
-      {open && (
-        <div className="max-h-80 overflow-y-auto border-t px-3 py-2">
-          {body ? <QuestionMarkdown>{body.bodyMd}</QuestionMarkdown> : <Skeleton className="h-24 w-full" />}
-        </div>
-      )}
+        </SelectContent>
+      </Select>
+      <p className="min-w-0 truncate text-xs text-muted-foreground">
+        {value
+          ? "Practising one topic — pick another any time"
+          : "Cycling every topic in this subject"}
+      </p>
     </div>
   );
 }

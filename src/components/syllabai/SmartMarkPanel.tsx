@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -29,6 +29,12 @@ import { QuestionMarkdown } from "./QuestionMarkdown";
  * each marked part offers the two feedback actions — "Explain my feedback" and
  * "Improve my answer". Deliberately button-driven, never a text box: grounding
  * (question, answer, decisions) is resolved server-side from opaque ids.
+ *
+ * <p>session-112 reuse: the exam-questions browser mounts this panel with
+ * {@code autoRun} (its Smart Mark button has already submitted the attempt —
+ * one click straight to feedback) and NO {@code onNext} (a browse card has no
+ * "next" — the enclosing card owns its own footer actions). Both props are
+ * optional and default to the Practice behaviour exactly as before.</p>
  */
 export function SmartMarkPanel({
   question,
@@ -36,16 +42,25 @@ export function SmartMarkPanel({
   marksPossible,
   partAnswers,
   onNext,
+  autoRun = false,
 }: {
   question: StudentQuestionView;
   attemptId: string;
   marksPossible: number;
   partAnswers: Record<string, string>;
-  onNext: () => void;
+  onNext?: () => void;
+  autoRun?: boolean;
 }) {
   const [marking, setMarking] = useState(false);
   const [result, setResult] = useState<SmartMarkAttemptView | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // exam-questions mode: the mounting click already committed to smart marking
+  useEffect(() => {
+    if (autoRun && !result && !error && !marking) {
+      void runSmartMark();
+    }
+  }, [autoRun, result, error, marking]);
 
   async function runSmartMark() {
     setMarking(true);
@@ -92,9 +107,11 @@ export function SmartMarkPanel({
             <Sparkles className="size-4" aria-hidden="true" />
             Try Smart Mark again
           </Button>
-          <Button variant="ghost" onClick={onNext}>
-            Skip — next question
-          </Button>
+          {onNext && (
+            <Button variant="ghost" onClick={onNext}>
+              Skip — next question
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -107,9 +124,11 @@ export function SmartMarkPanel({
           <Sparkles className="size-4" aria-hidden="true" />
           Open Smart Mark
         </Button>
-        <Button variant="ghost" onClick={onNext}>
-          Skip — next question
-        </Button>
+        {onNext && (
+          <Button variant="ghost" onClick={onNext}>
+            Skip — next question
+          </Button>
+        )}
       </div>
     );
   }
@@ -142,9 +161,11 @@ export function SmartMarkPanel({
         />
       ))}
 
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={onNext}>Next question</Button>
-      </div>
+      {onNext && (
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onNext}>Next question</Button>
+        </div>
+      )}
     </div>
   );
 }
