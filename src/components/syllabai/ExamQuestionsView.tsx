@@ -815,10 +815,18 @@ function McqResult({
               const stem = question.stem.slice(0, 300);
               const chosenLabel =
                 question.options.find((o) => o.id === chosen)?.label ?? "";
+              // the tutor only sees this text — without the option texts it has
+              // to guess what A/B/C/D were (session-114 fix)
+              const optionsFragment =
+                question.options.length > 0
+                  ? ` The options were: ${question.options
+                      .map((o) => `${o.label}) ${o.text}`)
+                      .join("  ")}.`
+                  : "";
               onAskTutorAbout(
                 result.correct
-                  ? `I answered this exam question correctly: "${stem}" — I chose ${chosenLabel}. Can you explain the chemistry behind it?`
-                  : `I got this exam question wrong and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${result.correctOptionLabel}. Can you explain the chemistry behind the correct answer?`,
+                  ? `I answered this exam question correctly: "${stem}" — I chose ${chosenLabel}.${optionsFragment} Can you explain the chemistry behind it?`
+                  : `I got this exam question wrong and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${result.correctOptionLabel}.${optionsFragment} Can you explain the chemistry behind the correct answer?`,
               );
             }}
           >

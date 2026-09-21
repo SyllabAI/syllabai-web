@@ -610,14 +610,22 @@ function McqResultPanel({
               const chosenLabel =
                 question?.options.find((o) => o.id === chosen)?.label ?? "";
               const correctLabel = result.correctOptionLabel ?? "";
+              // the tutor only sees this text — without the option texts it has
+              // to guess what A/B/C/D were (session-114 fix)
+              const optionsFragment =
+                question && question.options.length > 0
+                  ? ` The options were: ${question.options
+                      .map((o) => `${o.label}) ${o.text}`)
+                      .join("  ")}.`
+                  : "";
               onAskTutorAbout(
                 result.correct
                   ? `I answered this question correctly${
                       topicTitle ? ` on ${topicTitle}` : ""
-                    }: "${stem}" — I chose ${chosenLabel}, which was the right answer. Can you explain the chemistry behind it and what related ideas I should review to make sure I really understand it?`
+                    }: "${stem}" — I chose ${chosenLabel}, which was the right answer.${optionsFragment} Can you explain the chemistry behind it and what related ideas I should review to make sure I really understand it?`
                   : `I got this question wrong${
                       topicTitle ? ` on ${topicTitle}` : ""
-                    } and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${correctLabel}. Can you explain the chemistry behind the correct answer?`,
+                    } and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${correctLabel}.${optionsFragment} Can you explain the chemistry behind the correct answer?`,
               );
             }}
           >
