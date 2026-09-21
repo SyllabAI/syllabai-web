@@ -82,18 +82,23 @@ export interface QuestionTaxonomyTopic {
   structuredCount: number;
 }
 
-/** One syllabus section (UNIT node) with its question-bearing topics. */
+/** One syllabus section (UNIT node) with its question-bearing topics. The
+ *  distinctQuestionCount dedupes a question across the section's topics —
+ *  summing the per-topic badges would double-count multi-topic questions. */
 export interface QuestionTaxonomySection {
   nodeId: string;
   code: string;
   title: string;
+  distinctQuestionCount: number;
   topics: QuestionTaxonomyTopic[];
 }
 
 /** GET /api/v1/questions/topics response — the exam-questions browser sidebar
- *  and the practice topic picker, both code-ordered server-side. */
+ *  and the practice topic picker, both code-ordered server-side. The total
+ *  counts each DISTINCT question once, however many topics it maps to. */
 export interface QuestionTopicTaxonomyView {
   sections: QuestionTaxonomySection[];
+  totalDistinctQuestions: number;
 }
 
 export interface MarkSchemePointView {

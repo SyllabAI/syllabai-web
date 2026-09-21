@@ -213,10 +213,26 @@ export function ExamQuestionsView({
 
       <div className="grid gap-4 lg:grid-cols-[270px_1fr]">
         <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+          <div className="rounded-lg border bg-muted/20 px-3 py-2.5">
+            <p className="text-sm font-semibold tabular-nums">
+              {taxonomy.totalDistinctQuestions}{" "}
+              <span className="font-normal text-muted-foreground">questions</span>
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+              across {allTopics.length} topics — a question testing several topics
+              appears under each topic; this total counts each question once.
+            </p>
+          </div>
           {taxonomy.sections.map((section) => (
             <div key={section.nodeId} className="rounded-lg border bg-background">
-              <p className="border-b bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {section.title}
+              <p className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <span className="min-w-0 truncate">{section.title}</span>
+                <span
+                  className="shrink-0 rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case tabular-nums text-muted-foreground"
+                  title={`${section.distinctQuestionCount} distinct questions in this section (a question mapped to several of its topics counts once)`}
+                >
+                  {section.distinctQuestionCount}
+                </span>
               </p>
               <ul className="p-1.5">
                 {section.topics.map((topic) => {
