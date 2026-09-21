@@ -1,0 +1,43 @@
+name: Kappa Evaluate
+
+# Run the Smart Mark κ agreement gate against production (session-116,
+# F-161 release decision). Logs in as the pilot teacher with the SAME
+# secrets every teacher-surface workflow uses, then POSTs the κ evaluate
+# endpoint — ONE WRITE per dispatch (a new
+# smart_mark_agreement_evaluations row, global scope). Dispatch again
+# after any marking round to refresh the calibration; the gate reads the
+# newest evaluation. Prints sample/κ/passed only, never secrets; the JSON
+# response is uploaded as a workflow artifact.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kappa-evaluate
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the κ agreement evaluation against production
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          OUT_PATH: kappa-evaluation.json
+        run: python3 scripts/ops/kappa_evaluate.py
+
+      - name: Upload evaluation record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kappa-evaluation
+          path: kappa-evaluation.json
+          if-no-files-found: ignore
