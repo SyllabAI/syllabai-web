@@ -120,3 +120,34 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── SME demo-parity theme for the Exam Questions surface (session-119) ──
+ *
+ * The syllabai-demo playground (syllabai-demo.vercel.app) is the operator's
+ * approved look-and-feel reference for exam questions. This scope ports its
+ * SME visual identity onto the production surface WITHOUT touching the rest
+ * of the workbench: every utility under .exam-theme (and inside portalled
+ * dialogs that carry the class) resolves the SME blue primary and the
+ * Jakarta/Kodchasan type stack instead of the workbench defaults.
+ *   light: primary = SME brand blue #265bf6  (demo globals.css)
+ *   dark:  primary = lighter SME blue for dark surfaces (oklch .72 .145 264.4)
+ */
+.exam-theme {
+  --primary: oklch(0.541 0.238 264.7);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.541 0.238 264.7);
+  font-family: var(--font-jakarta), var(--font-geist-sans), ui-sans-serif, system-ui,
+    sans-serif;
+}
+
+.dark .exam-theme {
+  --primary: oklch(0.72 0.145 264.4);
+  --primary-foreground: oklch(0.145 0 0);
+  --ring: oklch(0.72 0.145 264.4);
+}
+
+/* SME display headings (demo --app-font-display: Kodchasan → Jakarta) */
+.exam-theme .exam-display {
+  font-family: var(--font-kodchasan), var(--font-jakarta),
+    var(--font-geist-sans), sans-serif;
+}

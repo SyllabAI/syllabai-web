@@ -1,47 +1,69 @@
 "use client";
 
 /**
- * Exam Questions (session-112, ADR-026): the topic/subtopic browser over the
- * full servable SME corpus — demo parity for browsing, plus the answering
- * loop the demo never had.
+ * Exam Questions (session-112, ADR-026; session-119 demo-parity restyle):
+ * the topic/subtopic browser over the full servable SME corpus, rebuilt to
+ * look and feel exactly like the syllabai-demo Learning Hub surface
+ * (syllabai-demo.vercel.app — the operator's approved visual reference)
+ * while keeping every production additive: real attempts (BKT fan-out,
+ * evidence, telemetry, decay anchors), the confidence calibration slider,
+ * Smart Mark (AI marking without scheme reveal), the policy-gated
+ * reveal-and-self-mark flow, the question↔notes help panel and the mastery
+ * tint in the sidebar.
  *
- * Marking model (operator-specified):
+ * Demo anatomy ported (question-player.tsx + hub chrome):
+ * - SME theme scope (.exam-theme: brand blue, Jakarta/Kodchasan type)
+ * - bank index → topic "set page" navigation with breadcrumbs, two-tone
+ *   display title and the exam-code pill
+ * - difficulty tabs with counts + the question-number jump grid
+ * - card header strip (number chip, marks, difficulty, Full screen, Save)
+ * - MCQ "Choose your answer" stacked letter rows → Submit → instant
+ *   verdict line + collapsible "Why this is the answer"
+ * - structured "Your answer" workspaces with SME right-aligned mark
+ *   placement (PartProblem)
+ * - the full-screen mark-scheme modal (topic pill, part restate with Show
+ *   more, your typed answers alongside, AND-joined [N mark] points) —
+ *   carrying the production self-mark steppers and recording endpoint
+ *
+ * Marking model (operator-specified, unchanged):
  * - MCQs are deterministically marked server-side (auto-graded attempts).
  * - STRUCTURED questions: "Send" submits the attempt and reveals the mark
- *   scheme (post-attempt, demo-style free reveal) with the SME self-mark flow
- *   under it; the separate "Smart Mark" button submits and AI-marks WITHOUT
- *   revealing the scheme — Feedback ("Explain my feedback") and "Improve my
- *   answer" only, so the official scheme stays hidden while the student still
- *   gets marked feedback. After Smart Mark the reveal stays available (the
- *   attempt exists), closing the loop into self-marking.
- * - Every submit flows through the same attempt endpoints as Practice, so the
- *   learner model (BKT fan-out, evidence, telemetry, decay anchors) updates
- *   identically — the integration is the reuse.
+ *   scheme (post-attempt, demo-style free reveal) with the SME self-mark
+ *   flow under it; the separate "Smart Mark" button submits and AI-marks
+ *   WITHOUT revealing the scheme — feedback only — and the reveal stays
+ *   available afterwards to close the loop into self-marking.
+ * - Every submit flows through the same attempt endpoints as Practice, so
+ *   the learner model updates identically — the integration is the reuse.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
+  ArrowRight,
+  Bookmark,
+  BookmarkCheck,
   CheckCircle2,
   ChevronDown,
-  ClipboardCheck,
-  Clock,
+  ChevronUp,
   Eye,
+  FileQuestion,
+  Home,
   Loader2,
+  Maximize2,
   MessagesSquare,
   PenLine,
   RotateCcw,
-  ScrollText,
   Send,
   Sparkles,
   TriangleAlert,
+  X,
   XCircle,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
@@ -57,13 +79,14 @@ import type {
   StudentQuestionView,
   StructuredAttemptResultView,
 } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { MarksStepper } from "./MarksStepper";
+import { PartProblem } from "./PartProblem";
 import { QuestionHelpPanel } from "./QuestionHelpPanel";
 import { QuestionMarkdown } from "./QuestionMarkdown";
 import { SmartMarkPanel } from "./SmartMarkPanel";
 
 const CONFIDENCE_LABELS = ["", "guessing", "unsure", "getting there", "confident", "certain"];
-const PAGE_SIZE = 8;
 
 const bandDot: Record<string, string> = {
   LOW: "bg-rose-500",
@@ -71,10 +94,74 @@ const bandDot: Record<string, string> = {
   SECURE: "bg-emerald-500",
 };
 
+/** SME difficulty bands (demo parity): the corpus carries 1–5; SME labels
+ * questions easy / medium / hard — 1–2 easy, 3 medium, 4–5 hard. */
+type DifficultyBand = "easy" | "medium" | "hard";
+const DIFFICULTIES = ["all", "easy", "medium", "hard"] as const;
+type DifficultyFilter = (typeof DIFFICULTIES)[number];
+
+function bandOf(difficulty: number): DifficultyBand {
+  if (difficulty <= 2) return "easy";
+  if (difficulty <= 3) return "medium";
+  return "hard";
+}
+
+/**
+ * Saved questions ride localStorage (demo parity — a bookmark affordance,
+ * not canonical state; the real attempt history stays server-side). Exposed
+ * as a tiny external store so components subscribe with
+ * useSyncExternalStore: SSR renders the empty set, the client hydrates from
+ * localStorage without a setState-in-effect, and every toggle re-renders all
+ * subscribers synchronously (Save button ⇄ Saved filter stay in step).
+ */
+const SAVED_KEY = "syllabai.exam.saved.v1";
+
+function loadSaved(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SAVED_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+let savedCache: Set<string> | null = null;
+const savedListeners = new Set<() => void>();
+
+function savedSnapshot(): Set<string> {
+  if (savedCache === null) savedCache = loadSaved();
+  return savedCache;
+}
+
+function subscribeSaved(notify: () => void) {
+  savedListeners.add(notify);
+  return () => {
+    savedListeners.delete(notify);
+  };
+}
+
+const EMPTY_SAVED: Set<string> = new Set();
+
+function toggleSavedId(id: string) {
+  const next = new Set(savedSnapshot());
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  try {
+    localStorage.setItem(SAVED_KEY, JSON.stringify([...next]));
+  } catch {
+    /* private mode etc. — saving is best-effort */
+  }
+  savedCache = next;
+  savedListeners.forEach((l) => l());
+}
+
+// ── the view: sidebar tree + bank index / topic set page ─────────────────
+
 export function ExamQuestionsView({
   rootId,
   graph,
   history,
+  subjectName,
   onAttemptSubmitted,
   onAskTutorAbout,
 }: {
@@ -84,15 +171,23 @@ export function ExamQuestionsView({
   graph: LearnerKnowledgeGraphView | null;
   /** recent attempts (already loaded) — the "tried" affordance on cards */
   history: AttemptHistoryView | null;
+  /** workbench subject label for the demo-parity header (e.g. "Chemistry") */
+  subjectName?: string | null;
   onAttemptSubmitted: () => void;
   onAskTutorAbout?: (draft: string) => void;
 }) {
   const [taxonomy, setTaxonomy] = useState<QuestionTopicTaxonomyView | null>(null);
   const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
+  /** the rootId the current taxonomy/error belongs to — staleness is derived
+      in render instead of resetting state inside effects (lint-clean) */
+  const [taxonomyRoot, setTaxonomyRoot] = useState<string | null | undefined>(undefined);
   const [selected, setSelected] = useState<QuestionTaxonomyTopic | null>(null);
   const [questions, setQuestions] = useState<StudentQuestionView[] | null>(null);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
-  const [visible, setVisible] = useState(PAGE_SIZE);
+  /** the topic nodeId the current questions/error belong to */
+  const [questionsTopic, setQuestionsTopic] = useState<string | null>(null);
+  const savedIds = useSyncExternalStore(subscribeSaved, savedSnapshot, () => EMPTY_SAVED);
+  const [savedOnly, setSavedOnly] = useState(false);
 
   // node id -> this learner's mastery state (the sidebar tint)
   const masteryByNode = useMemo(() => {
@@ -110,23 +205,19 @@ export function ExamQuestionsView({
 
   useEffect(() => {
     let cancelled = false;
-    setTaxonomy(null);
-    setTaxonomyError(null);
-    setSelected(null);
-    setQuestions(null);
     (async () => {
       try {
         const view = await api.questionTaxonomy(rootId ?? undefined);
         if (!cancelled) {
           setTaxonomy(view);
-          // demo parity: land on the first topic rather than an empty pane
-          setSelected(view.sections.flatMap((s) => s.topics)[0] ?? null);
+          setTaxonomyRoot(rootId ?? undefined);
         }
       } catch (err) {
         if (!cancelled) {
           setTaxonomyError(
             err instanceof Error ? err.message : "Failed to load the question topics",
           );
+          setTaxonomyRoot(rootId ?? undefined);
         }
       }
     })();
@@ -136,23 +227,21 @@ export function ExamQuestionsView({
   }, [rootId]);
 
   useEffect(() => {
-    if (!selected) {
-      setQuestions(null);
-      return;
-    }
+    if (!selected) return;
     let cancelled = false;
-    setQuestions(null);
-    setQuestionsError(null);
-    setVisible(PAGE_SIZE);
     (async () => {
       try {
         const list = await api.questions(selected.nodeId);
-        if (!cancelled) setQuestions(list);
+        if (!cancelled) {
+          setQuestions(list);
+          setQuestionsTopic(selected.nodeId);
+        }
       } catch (err) {
         if (!cancelled) {
           setQuestionsError(
             err instanceof Error ? err.message : "Failed to load the questions",
           );
+          setQuestionsTopic(selected.nodeId);
         }
       }
     })();
@@ -161,20 +250,36 @@ export function ExamQuestionsView({
     };
   }, [selected]);
 
-  if (taxonomyError) {
+  // derived staleness (render-phase, no effect resets): a taxonomy/selection
+  // from another subject root or topic must not flash while its reload is in
+  // flight — the guards below show skeletons until fresh data lands
+  const activeRoot = rootId ?? undefined;
+  const taxonomyFresh = taxonomyRoot === activeRoot;
+  const activeSelected =
+    selected && taxonomy && taxonomyFresh
+      ? taxonomy.sections.some((s) => s.topics.some((t) => t.nodeId === selected.nodeId))
+        ? selected
+        : null
+      : null;
+  const questionsFresh = !!activeSelected && questionsTopic === activeSelected.nodeId;
+
+  if (taxonomyError && taxonomyFresh) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>Exam questions unavailable</AlertTitle>
-        <AlertDescription>{taxonomyError}</AlertDescription>
-      </Alert>
+      <div className="exam-theme">
+        <Alert variant="destructive">
+          <AlertTitle>Exam questions unavailable</AlertTitle>
+          <AlertDescription>{taxonomyError}</AlertDescription>
+        </Alert>
+      </div>
     );
   }
 
-  if (!taxonomy) {
+  if (!taxonomy || !taxonomyFresh) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-8 w-64" />
-        <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+      <div className="exam-theme space-y-3">
+        <Skeleton className="h-9 w-72" />
+        <Skeleton className="h-5 w-full max-w-xl" />
+        <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
           <Skeleton className="h-96 w-full" />
           <Skeleton className="h-96 w-full" />
         </div>
@@ -185,33 +290,87 @@ export function ExamQuestionsView({
   const allTopics = taxonomy.sections.flatMap((s) => s.topics);
   if (allTopics.length === 0) {
     return (
-      <Alert>
-        <AlertTitle>No validated questions yet</AlertTitle>
-        <AlertDescription>
-          Questions appear here once validated content covers a topic — the same
-          serving gate every learner surface uses.
-        </AlertDescription>
-      </Alert>
+      <div className="exam-theme">
+        <Alert>
+          <AlertTitle>No validated questions yet</AlertTitle>
+          <AlertDescription>
+            Questions appear here once validated content covers a topic — the same
+            serving gate every learner surface uses.
+          </AlertDescription>
+        </Alert>
+      </div>
     );
   }
 
-  const shown = questions?.slice(0, visible) ?? null;
+  // demo chrome: exam code from the corpus's own code prefix (e.g. 4CH1-S1-f)
+  const examCode = allTopics[0]?.code.split("-")[0] ?? null;
+  const subject = subjectName?.trim() || "Chemistry";
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-          <ScrollText className="size-5 text-primary" aria-hidden="true" />
-          Exam Questions
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Every question in the corpus by topic — answer inline, reveal the mark
-          scheme, self-mark, or let Smart Mark give you feedback without giving
-          the scheme away.
+    <div className="exam-theme space-y-5">
+      <header className="space-y-3">
+        <nav
+          aria-label="Breadcrumb"
+          className="flex flex-wrap items-center gap-1 text-[13px]"
+        >
+          <button
+            type="button"
+            onClick={() => setSelected(null)}
+            className="inline-flex items-center gap-1 py-1 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Home className="size-3.5" aria-hidden />
+            <span className="sr-only sm:not-sr-only">Home</span>
+          </button>
+          <span aria-hidden className="text-muted-foreground/80">/</span>
+          <button
+            type="button"
+            onClick={() => setSelected(null)}
+            className={cn(
+              "py-1 underline-offset-2 transition-colors hover:text-foreground hover:underline",
+              activeSelected ? "text-muted-foreground" : "font-medium text-foreground",
+            )}
+          >
+            Exam Questions
+          </button>
+          {activeSelected && (
+            <>
+              <span aria-hidden className="text-muted-foreground/80">/</span>
+              <span className="py-1 font-medium text-foreground">{activeSelected.title}</span>
+            </>
+          )}
+        </nav>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="exam-display max-w-2xl text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
+            {activeSelected ? (
+              <>
+                {activeSelected.title}
+                <span className="text-muted-foreground">
+                  {" "}
+                  (Edexcel International GCSE {subject}): Exam Questions
+                </span>
+              </>
+            ) : (
+              <>
+                Edexcel International GCSE {subject}{" "}
+                <span className="text-muted-foreground">Exam Questions By Topic</span>
+              </>
+            )}
+          </h1>
+          {examCode && (
+            <span className="inline-flex items-center gap-1.5 rounded-lg border bg-muted/50 px-3 py-1.5 text-[13px]">
+              <span className="font-semibold text-foreground">Exam code:</span>
+              <span className="font-mono text-muted-foreground">{examCode}</span>
+            </span>
+          )}
+        </div>
+        <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
+          {activeSelected
+            ? `${activeSelected.questionCount} questions in this topic — answer inline, self-mark against the mark scheme, or let Smart Mark give you feedback without giving the scheme away.`
+            : `Exam-style questions organised by topic — ${taxonomy.totalDistinctQuestions} questions across ${allTopics.length} topics, with parts, command words, mark schemes and self-marking.`}
         </p>
-      </div>
+      </header>
 
-      <div className="grid gap-4 lg:grid-cols-[270px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
           <div className="rounded-lg border bg-muted/20 px-3 py-2.5">
             <p className="text-sm font-semibold tabular-nums">
@@ -223,122 +382,90 @@ export function ExamQuestionsView({
               appears under each topic; this total counts each question once.
             </p>
           </div>
-          {taxonomy.sections.map((section) => (
-            <div key={section.nodeId} className="rounded-lg border bg-background">
-              <p className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <span className="min-w-0 truncate">{section.title}</span>
-                <span
-                  className="shrink-0 rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case tabular-nums text-muted-foreground"
-                  title={`${section.distinctQuestionCount} distinct questions in this section (a question mapped to several of its topics counts once)`}
-                >
-                  {section.distinctQuestionCount}
-                </span>
-              </p>
-              <ul className="p-1.5">
-                {section.topics.map((topic) => {
-                  const isActive = selected?.nodeId === topic.nodeId;
-                  const node = masteryByNode.get(topic.nodeId);
-                  return (
-                    <li key={topic.nodeId}>
-                      <button
-                        type="button"
-                        onClick={() => setSelected(topic)}
-                        aria-current={isActive ? "true" : undefined}
-                        className={[
-                          "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
-                          isActive
-                            ? "bg-primary/10 font-medium text-primary ring-1 ring-primary/30"
-                            : "hover:bg-muted/60",
-                        ].join(" ")}
-                      >
-                        {node?.band ? (
-                          <span
-                            className={`size-2 shrink-0 rounded-full ${bandDot[node.band] ?? "bg-muted-foreground/40"}`}
-                            title={`Mastery ${Math.round((node.effectiveMastery ?? 0) * 100)}% (${node.band.toLowerCase()})`}
-                            aria-label={`Mastery ${Math.round((node.effectiveMastery ?? 0) * 100)} percent`}
-                          />
-                        ) : (
-                          <span
-                            className="size-2 shrink-0 rounded-full bg-muted-foreground/25"
-                            title="Not practised yet"
-                            aria-label="Not practised yet"
-                          />
-                        )}
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate">{topic.title}</span>
-                          <span className="block text-[11px] text-muted-foreground">
-                            {topic.code}
+          {taxonomy.sections.map((section) => {
+            const numMatch = section.code.match(/S(\d+)$/);
+            return (
+              <div key={section.nodeId} className="rounded-lg border bg-background">
+                <p className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <span className="min-w-0 truncate">
+                    {numMatch ? <><span className="font-semibold">{numMatch[1]}.</span> {section.title}</> : section.title}
+                  </span>
+                  <span
+                    className="shrink-0 rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case tabular-nums text-muted-foreground"
+                    title={`${section.distinctQuestionCount} distinct questions in this section (a question mapped to several of its topics counts once)`}
+                  >
+                    {section.distinctQuestionCount}
+                  </span>
+                </p>
+                <ul className="p-1.5">
+                  {section.topics.map((topic) => {
+                    const isActive = selected?.nodeId === topic.nodeId;
+                    const node = masteryByNode.get(topic.nodeId);
+                    return (
+                      <li key={topic.nodeId}>
+                        <button
+                          type="button"
+                          onClick={() => setSelected(isActive ? null : topic)}
+                          aria-current={isActive ? "true" : undefined}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
+                            isActive
+                              ? "bg-primary/10 font-medium text-primary ring-1 ring-primary/30"
+                              : "hover:bg-muted/60",
+                          )}
+                        >
+                          {node?.band ? (
+                            <span
+                              className={`size-2 shrink-0 rounded-full ${bandDot[node.band] ?? "bg-muted-foreground/40"}`}
+                              title={`Mastery ${Math.round((node.effectiveMastery ?? 0) * 100)}% (${node.band.toLowerCase()})`}
+                              aria-label={`Mastery ${Math.round((node.effectiveMastery ?? 0) * 100)} percent`}
+                            />
+                          ) : (
+                            <span
+                              className="size-2 shrink-0 rounded-full bg-muted-foreground/25"
+                              title="Not practised yet"
+                              aria-label="Not practised yet"
+                            />
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">{topic.title}</span>
+                            <span className="block text-[11px] text-muted-foreground">
+                              {topic.code}
+                            </span>
                           </span>
-                        </span>
-                        <span className="shrink-0 rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
-                          {topic.questionCount}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
+                          <span className="shrink-0 rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+                            {topic.questionCount}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
         </aside>
 
-        <div className="min-w-0 space-y-4">
-          {selected && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{selected.title}</p>
-                <p className="text-[11px] text-muted-foreground">
-                  {selected.code} · {selected.questionCount} questions ({selected.mcqCount}{" "}
-                  multiple choice · {selected.structuredCount} structured) — a question
-                  appears under every topic it tests
-                </p>
-              </div>
-            </div>
-          )}
-
-          {questionsError && (
-            <Alert variant="destructive">
-              <AlertDescription>{questionsError}</AlertDescription>
-            </Alert>
-          )}
-
-          {!questions && !questionsError && (
-            <div className="space-y-4">
-              <Skeleton className="h-48 w-full" />
-              <Skeleton className="h-48 w-full" />
-            </div>
-          )}
-
-          {questions && questions.length === 0 && (
-            <Alert>
-              <AlertTitle>No questions on this topic</AlertTitle>
-              <AlertDescription>
-                No validated questions are linked to this topic yet.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {shown?.map((question, i) => (
-            <ExamQuestionCard
-              key={question.id}
-              question={question}
-              index={i}
-              attempted={attemptedQuestionIds.has(question.id)}
+        <div className="min-w-0">
+          {activeSelected ? (
+            <TopicPane
+              topic={activeSelected}
+              questions={questionsFresh ? questions : null}
+              questionsError={questionsFresh ? questionsError : null}
+              attemptedQuestionIds={attemptedQuestionIds}
+              savedIds={savedIds}
+              savedOnly={savedOnly}
+              onToggleSavedOnly={() => setSavedOnly((v) => !v)}
+              onToggleSaved={toggleSavedId}
               onAttemptSubmitted={onAttemptSubmitted}
               onAskTutorAbout={onAskTutorAbout}
             />
-          ))}
-
-          {questions && visible < questions.length && (
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => setVisible((v) => v + PAGE_SIZE)}
-            >
-              <ChevronDown className="size-4" aria-hidden="true" />
-              Show {Math.min(PAGE_SIZE, questions.length - visible)} more of{" "}
-              {questions.length}
-            </Button>
+          ) : (
+            <BankIndex
+              taxonomy={taxonomy}
+              onSelect={setSelected}
+              attemptedQuestionIds={attemptedQuestionIds}
+            />
           )}
         </div>
       </div>
@@ -346,24 +473,389 @@ export function ExamQuestionsView({
   );
 }
 
-// ── one question card: header + stem + help + the marking-model answer flow ──
+// ── bank index (demo /exam-questions landing): topics grouped by section ──
+
+function BankIndex({
+  taxonomy,
+  onSelect,
+  attemptedQuestionIds,
+}: {
+  taxonomy: QuestionTopicTaxonomyView;
+  onSelect: (topic: QuestionTaxonomyTopic) => void;
+  attemptedQuestionIds: Set<string>;
+}) {
+  return (
+    <div className="space-y-5">
+      {taxonomy.sections.map((section) => {
+        const numMatch = section.code.match(/S(\d+)$/);
+        return (
+          <section key={section.nodeId} aria-label={`Topic ${numMatch?.[1] ?? ""}: ${section.title}`}>
+            <div className="mb-2 flex items-center gap-2">
+              <span
+                className="size-4 shrink-0 rounded-full border-2 border-muted-foreground/25"
+                aria-hidden
+              />
+              <h2 className="text-[15px] font-semibold">
+                {numMatch ? <><span className="font-semibold">{numMatch[1]}.</span> {section.title}</> : section.title}
+              </h2>
+            </div>
+            <div className="ml-4 grid gap-2 border-l pl-3 sm:grid-cols-2">
+              {section.topics.map((topic) => (
+                <button
+                  key={topic.nodeId}
+                  type="button"
+                  onClick={() => onSelect(topic)}
+                  className="group flex items-start gap-3 rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:border-primary/40"
+                >
+                  <FileQuestion className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold leading-snug group-hover:text-primary">
+                      {topic.title}
+                    </span>
+                    <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <Badge variant="outline" className="text-[10px]">
+                        {topic.questionCount} questions
+                      </Badge>
+                      <Badge variant="secondary" className="text-[10px]">
+                        {topic.mcqCount} multiple choice
+                      </Badge>
+                      <Badge variant="secondary" className="text-[10px]">
+                        {topic.structuredCount} structured
+                      </Badge>
+                    </span>
+                  </span>
+                  <ArrowRight
+                    className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+                    aria-hidden
+                  />
+                </button>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── topic set page (demo [topicSlug] page): tabs, jump grid, questions ────
+
+function TopicPane({
+  topic,
+  questions,
+  questionsError,
+  attemptedQuestionIds,
+  savedIds,
+  savedOnly,
+  onToggleSavedOnly,
+  onToggleSaved,
+  onAttemptSubmitted,
+  onAskTutorAbout,
+}: {
+  topic: QuestionTaxonomyTopic;
+  questions: StudentQuestionView[] | null;
+  questionsError: string | null;
+  attemptedQuestionIds: Set<string>;
+  savedIds: Set<string>;
+  savedOnly: boolean;
+  onToggleSavedOnly: () => void;
+  onToggleSaved: (id: string) => void;
+  onAttemptSubmitted: () => void;
+  onAskTutorAbout?: (draft: string) => void;
+}) {
+  const [difficulty, setDifficulty] = useState<DifficultyFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "mcq" | "structured">("all");
+
+  const counts = useMemo(() => {
+    const c: Record<DifficultyFilter, number> = {
+      all: questions?.length ?? 0,
+      easy: 0,
+      medium: 0,
+      hard: 0,
+    };
+    for (const q of questions ?? []) c[bandOf(q.difficulty)] += 1;
+    return c;
+  }, [questions]);
+
+  const visible = useMemo(() => {
+    let list = questions ?? [];
+    if (difficulty !== "all") list = list.filter((q) => bandOf(q.difficulty) === difficulty);
+    if (typeFilter === "mcq") list = list.filter((q) => q.type !== "STRUCTURED");
+    if (typeFilter === "structured") list = list.filter((q) => q.type === "STRUCTURED");
+    if (savedOnly) list = list.filter((q) => savedIds.has(q.id));
+    return list;
+  }, [questions, difficulty, typeFilter, savedOnly, savedIds]);
+
+  const isAttempted = (q: StudentQuestionView) => attemptedQuestionIds.has(q.id);
+
+  const scrollTo = (id: string) => {
+    document.getElementById(`q-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const totalMarks = (questions ?? []).reduce((a, q) => a + q.marks, 0);
+  // SME-style duration estimate (demo set page: "2 hours · 23 questions")
+  const estTime =
+    totalMarks >= 80
+      ? `≈ ${Math.round(totalMarks / 60)} hours`
+      : `≈ ${Math.max(totalMarks, 1)} min`;
+
+  return (
+    <div className="space-y-5">
+      {/* slim meta line (demo: "23 questions · 130 marks · ≈ 2 hours") */}
+      <p className="text-sm text-muted-foreground">
+        {questions
+          ? `${questions.length} questions · ${totalMarks} marks · ${estTime}`
+          : `${topic.questionCount} questions (${topic.mcqCount} multiple choice · ${topic.structuredCount} structured)`}
+      </p>
+
+      {/* difficulty tabs (demo controls, research §6.2) + saved filter */}
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card px-4 py-3">
+        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Difficulty">
+          {DIFFICULTIES.map((d) => (
+            <button
+              key={d}
+              type="button"
+              role="tab"
+              aria-selected={difficulty === d}
+              onClick={() => setDifficulty(d)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-[13px] font-medium capitalize transition-colors",
+                difficulty === d
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              {d === "all" ? "All" : d}
+              <span className="ml-1.5 text-[11px] tabular-nums opacity-70">{counts[d]}</span>
+            </button>
+          ))}
+        </div>
+        <div
+          className="flex flex-wrap gap-1.5"
+          role="tablist"
+          aria-label="Question type"
+        >
+          {(
+            [
+              ["all", "All types"],
+              ["mcq", "Multiple choice"],
+              ["structured", "Structured"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={typeFilter === value}
+              onClick={() => setTypeFilter(value)}
+              className={cn(
+                "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                typeFilter === value
+                  ? "border-primary/40 bg-primary/5 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant={savedOnly ? "default" : "outline"}
+          className="ml-auto h-8 gap-1.5 px-2.5 text-xs"
+          onClick={onToggleSavedOnly}
+          aria-pressed={savedOnly}
+        >
+          <Bookmark className="size-3.5" aria-hidden />
+          Saved ({[...savedIds].length})
+        </Button>
+      </div>
+
+      {/* question number grid (demo jump-to-question) */}
+      {visible.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" aria-label="Jump to question">
+          {visible.map((q, i) => (
+            <button
+              key={q.id}
+              type="button"
+              onClick={() => scrollTo(q.id)}
+              aria-label={`Question ${i + 1}${isAttempted(q) ? " (attempted)" : ""}`}
+              className={cn(
+                "flex size-9 items-center justify-center rounded-md border text-[13px] font-medium transition-colors",
+                isAttempted(q)
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "hover:border-primary/50 hover:text-primary",
+              )}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* questions */}
+      <div className="space-y-4">
+        {questionsError && (
+          <Alert variant="destructive">
+            <AlertDescription>{questionsError}</AlertDescription>
+          </Alert>
+        )}
+
+        {!questions && !questionsError && (
+          <div className="space-y-4">
+            <Skeleton className="h-48 w-full" />
+            <Skeleton className="h-48 w-full" />
+          </div>
+        )}
+
+        {questions && questions.length === 0 && (
+          <p className="rounded-lg border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+            No validated questions are linked to this topic yet.
+          </p>
+        )}
+
+        {questions && questions.length > 0 && visible.length === 0 && (
+          <p className="rounded-lg border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+            No {difficulty !== "all" ? difficulty : ""}
+            {savedOnly ? " saved" : ""}
+            {typeFilter !== "all" ? ` ${typeFilter === "mcq" ? "multiple-choice" : "structured"}` : ""}
+            {" "}questions in this topic.
+          </p>
+        )}
+
+        {visible.map((question, i) => (
+          <ExamQuestionCard
+            key={question.id}
+            question={question}
+            index={i}
+            attempted={isAttempted(question)}
+            saved={savedIds.has(question.id)}
+            onToggleSaved={() => onToggleSaved(question.id)}
+            onAttemptSubmitted={onAttemptSubmitted}
+            onAskTutorAbout={onAskTutorAbout}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── one question card: demo anatomy header + the production answer flow ───
 
 function ExamQuestionCard({
   question,
   index,
   attempted,
+  saved,
+  onToggleSaved,
   onAttemptSubmitted,
   onAskTutorAbout,
 }: {
   question: StudentQuestionView;
   index: number;
   attempted: boolean;
+  saved: boolean;
+  onToggleSaved: () => void;
+  onAttemptSubmitted: () => void;
+  onAskTutorAbout?: (draft: string) => void;
+}) {
+  const [fullFor, setFullFor] = useState(false);
+
+  return (
+    <article
+      id={`q-${question.id}`}
+      className="scroll-mt-24 rounded-xl border bg-card"
+    >
+      {/* demo header strip: number chip · marks · difficulty · tried · actions */}
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
+        <span className="rounded-md bg-muted px-2 py-0.5 text-[13px] font-semibold">
+          {index + 1}
+        </span>
+        <Badge variant="outline" className="text-[10px]">
+          {question.marks} mark{question.marks === 1 ? "" : "s"}
+        </Badge>
+        <Badge variant="secondary" className="text-[10px] capitalize">
+          {bandOf(question.difficulty)}
+        </Badge>
+        {attempted && (
+          <Badge
+            variant="outline"
+            className="border-emerald-700/30 text-[10px] text-emerald-700 dark:border-emerald-400/30 dark:text-emerald-400"
+          >
+            <CheckCircle2 className="mr-0.5 size-3" aria-hidden /> attempted
+          </Badge>
+        )}
+        {question.externalRef ? (
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {question.externalRef}
+          </span>
+        ) : null}
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 gap-1.5 px-2 text-xs"
+            onClick={() => setFullFor(true)}
+          >
+            <Maximize2 className="size-3.5" aria-hidden /> Full screen
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 gap-1.5 px-2 text-xs"
+            onClick={onToggleSaved}
+            aria-pressed={saved}
+          >
+            {saved ? (
+              <>
+                <BookmarkCheck className="size-3.5 text-primary" aria-hidden /> Saved
+              </>
+            ) : (
+              <>
+                <Bookmark className="size-3.5" aria-hidden /> Save
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      <div className="px-4 py-4">
+        {/* ONE stateful body instance renders both the inline card and the
+            full-screen dialog — drafts and results persist across the toggle */}
+        <QuestionBody
+          question={question}
+          index={index}
+          fullScreen={fullFor}
+          onFullScreenChange={setFullFor}
+          onAttemptSubmitted={onAttemptSubmitted}
+          onAskTutorAbout={onAskTutorAbout}
+        />
+      </div>
+    </article>
+  );
+}
+
+// ── question body (shared by the list card + the full-screen dialog) ──────
+
+function QuestionBody({
+  question,
+  index,
+  fullScreen,
+  onFullScreenChange,
+  onAttemptSubmitted,
+  onAskTutorAbout,
+}: {
+  question: StudentQuestionView;
+  index: number;
+  fullScreen: boolean;
+  onFullScreenChange: (open: boolean) => void;
   onAttemptSubmitted: () => void;
   onAskTutorAbout?: (draft: string) => void;
 }) {
   const [confidence, setConfidence] = useState(3);
-  // responseTimeMs research anchor: the first interaction with THIS card, not
-  // the topic load (browsing time between cards must not pollute response time)
+  // responseTimeMs research anchor: the first interaction with THIS question,
+  // not the topic load (browsing time must not pollute response time)
   const startedAt = useRef<number | null>(null);
   const anchor = useCallback(() => {
     if (startedAt.current === null) startedAt.current = Date.now();
@@ -376,9 +868,11 @@ function ExamQuestionCard({
   const [partAnswers, setPartAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // the structured flow's phase: which post-submit path owns the card
+  // the structured flow's phase: which post-submit path owns the question
   const [attempt, setAttempt] = useState<StructuredAttemptResultView | null>(null);
   const [mode, setMode] = useState<"reveal" | "smart" | null>(null);
+  // the demo mark-scheme modal (opened by Send, or after Smart Mark)
+  const [schemeOpen, setSchemeOpen] = useState(false);
 
   const isStructured = question.type === "STRUCTURED";
   const parts = question.parts ?? [];
@@ -392,6 +886,7 @@ function ExamQuestionCard({
     setPartAnswers({});
     setAttempt(null);
     setMode(null);
+    setSchemeOpen(false);
     setError(null);
     setConfidence(3);
     startedAt.current = null;
@@ -447,134 +942,156 @@ function ExamQuestionCard({
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs text-muted-foreground">Q{index + 1}</span>
-          {question.commandWord ? (
-            <Badge variant="outline" className="capitalize">
-              {question.commandWord}
-            </Badge>
-          ) : null}
-          <Badge variant="secondary">
-            {question.marks} mark{question.marks === 1 ? "" : "s"}
-          </Badge>
-          <Badge variant="outline">difficulty {question.difficulty}/5</Badge>
-          <Badge variant="outline">
-            <Clock className="mr-1 size-3" aria-hidden="true" />~{question.expectedTimeSeconds}s
-          </Badge>
-          {isStructured ? (
-            <Badge variant="outline" className="gap-1">
-              <PenLine className="size-3" aria-hidden="true" /> structured
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="gap-1">
-              <ClipboardCheck className="size-3" aria-hidden="true" /> multiple choice
-            </Badge>
-          )}
-          {attempted && (
-            <Badge variant="outline" className="gap-1 text-emerald-700 dark:text-emerald-400">
-              <CheckCircle2 className="size-3" aria-hidden="true" /> tried before
-            </Badge>
-          )}
-          {question.externalRef ? (
-            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-              {question.externalRef}
-            </span>
-          ) : null}
-        </div>
-        {(question.specPointCodes ?? []).length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {(question.specPointCodes ?? []).slice(0, 4).map((code) => (
-              <Badge key={code} variant="secondary" className="font-mono text-[10px]">
-                {code}
-              </Badge>
-            ))}
-          </div>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {question.stem ? <QuestionMarkdown>{question.stem}</QuestionMarkdown> : null}
-        <QuestionHelpPanel question={question} />
+    <>
+      {/* ONE content tree shared by the inline card and the full-screen
+          dialog (demo parity) — both bind the same state, so drafts, choices
+          and results persist across the toggle */}
+      {(() => {
+        const content = (
+          <div className="space-y-4">
+            {question.stem ? <QuestionMarkdown>{question.stem}</QuestionMarkdown> : null}
+            <QuestionHelpPanel question={question} />
 
-        {isStructured ? (
-          mode === null || attempt === null ? (
-            <StructuredAnswerInputs
-              question={question}
-              partAnswers={partAnswers}
-              setPartAnswers={setPartAnswers}
-              confidence={confidence}
-              setConfidence={setConfidence}
-              disabled={busy}
-              onFirstTouch={anchor}
-              busy={busy}
-              allAnswered={allAnswered}
-              error={error}
-              onSend={async () => {
-                const response = await submitStructured();
-                if (response) setMode("reveal");
-              }}
-              onSmartMark={async () => {
-                const response = await submitStructured();
-                if (response) setMode("smart");
-              }}
-            />
-          ) : mode === "smart" ? (
-            <div className="space-y-4">
-              <SmartMarkPanel
+            {isStructured ? (
+              mode === null || attempt === null ? (
+                <StructuredAnswerInputs
+                  question={question}
+                  partAnswers={partAnswers}
+                  setPartAnswers={setPartAnswers}
+                  confidence={confidence}
+                  setConfidence={setConfidence}
+                  disabled={busy}
+                  onFirstTouch={anchor}
+                  busy={busy}
+                  allAnswered={allAnswered}
+                  error={error}
+                  onSend={async () => {
+                    const response = await submitStructured();
+                    if (response) {
+                      setMode("reveal");
+                      setSchemeOpen(true);
+                    }
+                  }}
+                  onSmartMark={async () => {
+                    const response = await submitStructured();
+                    if (response) setMode("smart");
+                  }}
+                />
+              ) : mode === "smart" ? (
+                <div className="space-y-4">
+                  <SmartMarkPanel
+                    question={question}
+                    attemptId={attempt.attemptId}
+                    marksPossible={attempt.marksPossible}
+                    partAnswers={partAnswers}
+                    autoRun
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    The mark scheme stays hidden while you work with Smart Mark —
+                    you&apos;ve attempted the question, so you can still reveal it and
+                    self-mark when you&apos;re ready.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" className="gap-1.5" onClick={() => setSchemeOpen(true)}>
+                      <Eye className="size-4" aria-hidden="true" />
+                      View answer &amp; self-mark
+                    </Button>
+                    <Button variant="ghost" onClick={reset}>
+                      <RotateCcw className="size-4" aria-hidden="true" />
+                      Try again
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <Alert>
+                    <Send className="size-4 text-primary" aria-hidden="true" />
+                    <AlertTitle>Submitted — {attempt.marksPossible} marks</AlertTitle>
+                    <AlertDescription>
+                      Your written answers are stored with your attempt. Mark yourself
+                      against the scheme — tick what you earned — or leave it for your
+                      teacher.
+                    </AlertDescription>
+                  </Alert>
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={() => setSchemeOpen(true)} className="gap-1.5">
+                      <Eye className="size-4" aria-hidden="true" />
+                      View answer &amp; self-mark
+                    </Button>
+                    <Button variant="ghost" onClick={reset}>
+                      <RotateCcw className="size-4" aria-hidden="true" />
+                      Try again
+                    </Button>
+                  </div>
+                </div>
+              )
+            ) : mcqResult ? (
+              <McqResult
                 question={question}
-                attemptId={attempt.attemptId}
-                marksPossible={attempt.marksPossible}
-                partAnswers={partAnswers}
-                autoRun
+                result={mcqResult}
+                chosen={chosen}
+                onAskTutorAbout={onAskTutorAbout}
+                onRetry={reset}
               />
-              <p className="text-[11px] text-muted-foreground">
-                The mark scheme stays hidden while you work with Smart Mark —
-                you&apos;ve attempted the question, so you can still reveal it and
-                self-mark when you&apos;re ready.
-              </p>
-              <Button
-                variant="outline"
-                className="gap-1.5"
-                onClick={() => setMode("reveal")}
+            ) : (
+              <McqAnswerInputs
+                question={question}
+                chosen={chosen}
+                setChosen={setChosen}
+                confidence={confidence}
+                setConfidence={setConfidence}
+                disabled={busy}
+                onFirstTouch={anchor}
+                busy={busy}
+                allAnswered={allAnswered}
+                error={error}
+                onSubmit={submitMcq}
+              />
+            )}
+          </div>
+        );
+
+        return (
+          <>
+            {content}
+
+            {/* full-screen question (demo Dialog) — same content instance */}
+            <Dialog open={fullScreen} onOpenChange={onFullScreenChange}>
+              <DialogContent
+                aria-describedby={undefined}
+                className="exam-theme max-h-[90vh] max-w-3xl overflow-y-auto"
               >
-                <Eye className="size-4" aria-hidden="true" />
-                Reveal mark scheme &amp; self-mark
-              </Button>
-            </div>
-          ) : (
-            <StructuredRevealFlow
-              question={question}
-              attempt={attempt}
-              partAnswers={partAnswers}
-              onDone={reset}
-            />
-          )
-        ) : mcqResult ? (
-          <McqResult
-            question={question}
-            result={mcqResult}
-            chosen={chosen}
-            onAskTutorAbout={onAskTutorAbout}
-            onRetry={reset}
-          />
-        ) : (
-          <McqAnswerInputs
-            question={question}
-            chosen={chosen}
-            setChosen={setChosen}
-            confidence={confidence}
-            setConfidence={setConfidence}
-            disabled={busy}
-            onFirstTouch={anchor}
-            busy={busy}
-            allAnswered={allAnswered}
-            error={error}
-            onSubmit={submitMcq}
-          />
-        )}
-      </CardContent>
-    </Card>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-base">
+                    Question {index + 1}
+                    <Badge variant="outline" className="text-[10px]">
+                      {question.marks} marks
+                    </Badge>
+                  </DialogTitle>
+                </DialogHeader>
+                {content}
+              </DialogContent>
+            </Dialog>
+
+            {/* the demo full-screen mark-scheme modal, carrying the production
+                reveal-and-self-mark flow (steppers + recording endpoint).
+                Conditionally mounted: each open is a fresh, lint-clean state
+                machine (loading → open/withheld/error → recorded) keyed by
+                the attempt, so no effect ever resets state synchronously. */}
+            {isStructured && attempt && schemeOpen && (
+              <MarkSchemeDialog
+                key={attempt.attemptId}
+                question={question}
+                attempt={attempt}
+                partAnswers={partAnswers}
+                onClose={() => setSchemeOpen(false)}
+                onDone={reset}
+              />
+            )}
+          </>
+        );
+      })()}
+    </>
   );
 }
 
@@ -607,7 +1124,7 @@ function ConfidenceRow({
   );
 }
 
-// ── MCQ answering ───────────────────────────────────────────────────────────
+// ── MCQ answering (demo "Choose your answer" stacked letter rows) ─────────
 
 function McqAnswerInputs({
   question,
@@ -635,46 +1152,57 @@ function McqAnswerInputs({
   onSubmit: () => void;
 }) {
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Answer options">
+    <div className="space-y-3">
+      <p className="text-[13px] font-medium">Choose your answer</p>
+      <div className="space-y-2" role="radiogroup" aria-label="Answer options">
         {(question.options ?? []).map((option) => {
-          const isSelected = chosen === option.id;
+          const isChosen = chosen === option.id;
           return (
-            <button
+            <div
               key={option.id}
-              type="button"
               role="radio"
-              aria-checked={isSelected}
-              disabled={disabled}
+              aria-checked={isChosen}
+              tabIndex={disabled ? -1 : 0}
               onClick={() => {
+                if (disabled) return;
                 onFirstTouch();
                 setChosen(option.id);
               }}
-              className={[
-                "flex items-start gap-3 rounded-lg border p-3 text-left transition-colors",
-                "hover:border-primary/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
-                isSelected ? "border-primary bg-primary/5 ring-1 ring-primary" : "",
-                disabled ? "opacity-60" : "",
-              ].join(" ")}
+              onKeyDown={(e) => {
+                if (disabled) return;
+                if (e.key === " " || e.key === "Enter") {
+                  e.preventDefault();
+                  onFirstTouch();
+                  setChosen(option.id);
+                }
+              }}
+              className={cn(
+                "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors",
+                disabled && "cursor-default",
+                isChosen
+                  ? "border-primary bg-primary/5"
+                  : "hover:border-primary/50",
+              )}
             >
               <span
-                className={[
-                  "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md border font-semibold text-sm",
-                  isSelected
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "bg-muted",
-                ].join(" ")}
+                className={cn(
+                  "flex size-7 shrink-0 items-center justify-center rounded-full border text-[13px] font-semibold",
+                  isChosen
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "text-primary",
+                )}
+                aria-hidden
               >
                 {option.label}
               </span>
-              <span className="min-w-0 flex-1 text-sm leading-relaxed">
+              <span className="flex-1 text-[13px] leading-relaxed">
                 <QuestionMarkdown>{option.text}</QuestionMarkdown>
               </span>
-            </button>
+            </div>
           );
         })}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
         <ConfidenceRow value={confidence} onChange={setConfidence} disabled={busy} />
         <Button onClick={onSubmit} disabled={!allAnswered || busy}>
           {busy ? (
@@ -708,6 +1236,7 @@ function McqResult({
   onRetry: () => void;
 }) {
   const [scheme, setScheme] = useState<MarkSchemeRevealView | null>(null);
+  const [showWhy, setShowWhy] = useState(true);
 
   // post-attempt: the worked solution (the MCQ's mark scheme) reveals freely,
   // exactly like the demo — the attempt has already been deterministically marked
@@ -728,105 +1257,129 @@ function McqResult({
 
   const correctOptionId =
     question.options.find((o) => o.label === result.correctOptionLabel)?.id ?? null;
+  const hasScheme =
+    !!scheme && (scheme.generalPoints.length > 0 || scheme.parts.length > 0);
 
   return (
-    <div className="space-y-4">
-      <Alert variant={result.correct ? "default" : "destructive"}>
-        {result.correct ? (
-          <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
-        ) : (
-          <XCircle className="size-4" aria-hidden="true" />
-        )}
-        <AlertTitle>
+    <div className="space-y-3">
+      {/* demo verdict line: "Correct — well done." / "Not quite. The correct
+          answer is X." (the marks + mastery note ride along, production data) */}
+      <div className="flex flex-wrap items-center gap-3">
+        <p
+          className={cn(
+            "text-[13px] font-medium",
+            result.correct ? "text-emerald-700 dark:text-emerald-400" : "text-destructive",
+          )}
+        >
           {result.correct
-            ? `Correct — ${result.marksAwarded}/${result.marksTotal} marks`
-            : `Not correct — ${result.marksAwarded}/${result.marksTotal} marks`}
-        </AlertTitle>
-        <AlertDescription>
-          {result.correct
-            ? "Marked automatically. Your mastery estimate for this topic has been updated."
-            : `Marked automatically — the correct answer is ${result.correctOptionLabel}. Your mastery estimate was updated.`}
-        </AlertDescription>
-      </Alert>
+            ? `Correct — well done. ${result.marksAwarded}/${result.marksTotal} marks.`
+            : `Not quite. The correct answer is ${result.correctOptionLabel}. ${result.marksAwarded}/${result.marksTotal} marks.`}
+        </p>
+        <span className="text-[11px] text-muted-foreground">
+          Marked automatically — your mastery estimate for this topic has been updated.
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="ml-auto h-8 gap-1.5 text-xs text-muted-foreground"
+          onClick={onRetry}
+        >
+          <RotateCcw className="size-3.5" aria-hidden /> Try again
+        </Button>
+      </div>
 
-      <div className="grid gap-3 sm:grid-cols-2" aria-label="Your answer and the correct answer">
+      <div className="space-y-2" aria-label="Your answer and the correct answer">
         {(question.options ?? []).map((option) => {
-          const isSelected = chosen === option.id;
+          const isChosen = chosen === option.id;
           const isCorrect = correctOptionId === option.id;
-          const isWrongPick = isSelected && !isCorrect;
+          const showCorrect = isCorrect;
+          const showWrong = isChosen && !isCorrect;
           return (
             <div
               key={option.id}
-              className={[
-                "flex items-start gap-3 rounded-lg border p-3 text-left",
-                isCorrect ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-950/40" : "",
-                isWrongPick ? "border-destructive bg-destructive/10" : "",
-                !isCorrect && !isWrongPick ? "opacity-70" : "",
-              ].join(" ")}
+              className={cn(
+                "flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors",
+                showCorrect && "border-emerald-600/40 bg-emerald-600/10 dark:border-emerald-400/40 dark:bg-emerald-400/10",
+                showWrong && "border-destructive/40 bg-destructive/10",
+                !showCorrect && !showWrong && "opacity-70",
+              )}
             >
               <span
-                className={[
-                  "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md border font-semibold text-sm",
-                  isCorrect ? "border-emerald-500 bg-emerald-500 text-white" : "bg-muted",
-                  isWrongPick
-                    ? "border-destructive bg-destructive text-destructive-foreground"
-                    : "",
-                ].join(" ")}
+                className={cn(
+                  "flex size-7 shrink-0 items-center justify-center rounded-full border text-[13px] font-semibold",
+                  showCorrect && "border-emerald-600/40 bg-emerald-600/15 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-400/15 dark:text-emerald-400",
+                  showWrong && "border-destructive/40 bg-destructive/15 text-destructive",
+                  !showCorrect && !showWrong && "text-muted-foreground",
+                )}
+                aria-hidden
               >
                 {option.label}
               </span>
-              <span className="min-w-0 flex-1 text-sm leading-relaxed">
+              <span className="flex-1 text-[13px] leading-relaxed">
                 <QuestionMarkdown>{option.text}</QuestionMarkdown>
               </span>
-              {isCorrect && (
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+              {showCorrect && (
+                <CheckCircle2
+                  className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+                  aria-hidden
+                />
               )}
-              {isWrongPick && (
-                <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+              {showWrong && (
+                <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
               )}
             </div>
           );
         })}
       </div>
 
-      {scheme && (scheme.generalPoints.length > 0 || scheme.parts.length > 0) && (
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-            <PenLine className="size-4" aria-hidden="true" /> Worked solution
-          </p>
-          <div className="space-y-2">
-            {scheme.generalPoints.map((p, i) => (
-              <QuestionMarkdown key={`${p.ref ?? "pt"}-${i}`}>{p.text}</QuestionMarkdown>
-            ))}
-            {scheme.parts.flatMap((part) =>
-              part.points.map((p, i) => (
-                <QuestionMarkdown key={`${part.partId}-${p.ref ?? i}`}>{p.text}</QuestionMarkdown>
-              )),
+      {/* demo collapsible: "Why this is the answer" */}
+      {hasScheme && (
+        <div className="rounded-lg border bg-muted/20">
+          <button
+            type="button"
+            className="flex w-full items-center gap-1.5 px-3 py-2 text-[13px] font-medium"
+            onClick={() => setShowWhy((v) => !v)}
+            aria-expanded={showWhy}
+          >
+            {showWhy ? (
+              <ChevronUp className="size-3.5" aria-hidden />
+            ) : (
+              <ChevronDown className="size-3.5" aria-hidden />
             )}
-          </div>
+            Why this is the answer
+          </button>
+          {showWhy && (
+            <div className="space-y-2 border-t px-3 py-2">
+              {scheme!.generalPoints.map((p, i) => (
+                <QuestionMarkdown key={`${p.ref ?? "pt"}-${i}`}>{p.text}</QuestionMarkdown>
+              ))}
+              {scheme!.parts.flatMap((part) =>
+                part.points.map((p, i) => (
+                  <QuestionMarkdown key={`${part.partId}-${p.ref ?? i}`}>{p.text}</QuestionMarkdown>
+                )),
+              )}
+            </div>
+          )}
         </div>
       )}
 
       {!result.correct && result.implicatedMisconceptionIds.length > 0 && (
-        <Alert>
-          <TriangleAlert className="size-4 text-amber-500" aria-hidden="true" />
-          <AlertTitle>Misconception signal detected</AlertTitle>
-          <AlertDescription>
-            The option you chose matches a documented misconception — the BDT
-            engine raised its probability.
-          </AlertDescription>
-        </Alert>
+        <div className="rounded-md border border-amber-700/30 bg-amber-700/10 px-3 py-2 text-xs leading-relaxed text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+          <p className="flex items-center gap-1.5 font-medium">
+            <TriangleAlert className="size-3.5" aria-hidden /> Misconception signal detected
+          </p>
+          The option you chose matches a documented misconception — the learner
+          model raised its probability. Watch for it in My state and the review
+          queue.
+        </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={onRetry}>
-          <RotateCcw className="size-4" aria-hidden="true" />
-          Try again
-        </Button>
-        {onAskTutorAbout && (
+      {onAskTutorAbout && (
+        <div className="border-t pt-2">
           <Button
-            variant="outline"
-            className="gap-1.5"
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-xs"
             onClick={() => {
               const stem = question.stem.slice(0, 300);
               const chosenLabel =
@@ -846,16 +1399,16 @@ function McqResult({
               );
             }}
           >
-            <MessagesSquare className="size-4" aria-hidden="true" />
-            Ask tutor about this
+            <MessagesSquare className="size-3.5" aria-hidden />
+            Question help
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── structured answering: the Send / Smart Mark fork ───────────────────────
+// ── structured answering: demo workspaces + the Send / Smart Mark fork ────
 
 function StructuredAnswerInputs({
   question,
@@ -884,36 +1437,61 @@ function StructuredAnswerInputs({
   onSend: () => void;
   onSmartMark: () => void;
 }) {
+  const parts = question.parts ?? [];
+  const multiPart = parts.length > 1;
+
   return (
     <div className="space-y-4">
-      {(question.parts ?? []).map((part) => (
-        <div key={part.id} className="space-y-1.5">
-          <div className="text-sm font-semibold">
-            <span className="mr-1.5 inline-flex size-6 items-center justify-center rounded border bg-muted font-mono text-xs">
+      {parts.map((part) => (
+        <div key={part.id} className="space-y-2">
+          {/* SME (demo figure 16): per-part marks right-aligned, no chips/spec
+              codes on the learner face; the part label chip rides the prompt */}
+          <div className="flex items-center gap-2">
+            <span className="inline-flex size-6 items-center justify-center rounded border bg-muted font-mono text-xs">
               {part.label}
             </span>
-            {part.commandWord ? `${part.commandWord} — ` : ""}
-            <span className="ml-1 font-normal text-muted-foreground">
-              ({part.marks} mark{part.marks > 1 ? "s" : ""})
-            </span>
+            {part.commandWord ? (
+              <span className="text-xs font-medium capitalize text-muted-foreground">
+                {part.commandWord}
+              </span>
+            ) : null}
+            {multiPart && (
+              <span className="ml-auto text-xs text-muted-foreground">
+                {part.marks} mark{part.marks === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
-          <QuestionMarkdown>{part.prompt}</QuestionMarkdown>
-          <Textarea
-            id={part.id}
-            value={partAnswers[part.id] ?? ""}
-            onFocus={onFirstTouch}
-            onChange={(e) => {
-              onFirstTouch();
-              setPartAnswers((prev) => ({ ...prev, [part.id]: e.target.value }));
-            }}
-            placeholder="Write your answer…"
-            rows={3}
-            disabled={disabled}
-          />
+          <PartProblem md={part.prompt} />
+
+          {/* demo "Your answer" workspace — production semantics: the text is
+              stored with the attempt on submit (real answers, real evidence) */}
+          <div className="rounded-lg border bg-muted/20 p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <PenLine className="size-3.5 text-primary" aria-hidden />
+              <span className="text-[13px] font-medium">Your answer</span>
+              <span className="text-[11px] text-muted-foreground">
+                stored with your attempt when you submit
+              </span>
+            </div>
+            <Textarea
+              id={part.id}
+              value={partAnswers[part.id] ?? ""}
+              onFocus={onFirstTouch}
+              onChange={(e) => {
+                onFirstTouch();
+                setPartAnswers((prev) => ({ ...prev, [part.id]: e.target.value }));
+              }}
+              placeholder="Type your answer here…"
+              rows={4}
+              disabled={disabled}
+              className="min-h-24 bg-background text-[13px]"
+              aria-label={`Your answer for part ${part.label}`}
+            />
+          </div>
         </div>
       ))}
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
         <ConfidenceRow value={confidence} onChange={setConfidence} disabled={busy} />
         <div className="flex flex-wrap gap-2">
           <Button onClick={onSend} disabled={!allAnswered || busy}>
@@ -949,23 +1527,35 @@ function StructuredAnswerInputs({
   );
 }
 
-// ── the reveal-and-self-mark flow (demo style, post-attempt) ───────────────
+// ── the mark-scheme modal (demo full-screen scheme, research §6.3 figure 9)─
+// Demo presentation (topic pill, part restate with Show more, your typed
+// answer alongside, AND-joined [N mark] points) carrying the PRODUCTION
+// reveal-and-self-mark flow: policy-gated scheme fetch, per-part steppers,
+// the single-shot self-mark recording endpoint, honest withheld/error states.
 
-function StructuredRevealFlow({
+function transformMarkTags(md: string): string {
+  // "**[1]**" → "**[1 mark]**" so the corpus's own tags read like SME's
+  return md.replace(/\*\*\[(\d+)\]\*\*/g, (_m, n) => `**[${n} mark${Number(n) === 1 ? "" : "s"}]**`);
+}
+
+function MarkSchemeDialog({
   question,
   attempt,
   partAnswers,
+  onClose,
   onDone,
 }: {
   question: StudentQuestionView;
   attempt: StructuredAttemptResultView;
   partAnswers: Record<string, string>;
+  onClose: () => void;
   onDone: () => void;
 }) {
   const [scheme, setScheme] = useState<MarkSchemeRevealView | null>(null);
   const [schemeState, setSchemeState] = useState<"loading" | "open" | "withheld" | "error">(
     "loading",
   );
+  const [expanded, setExpanded] = useState(false);
   const [selfMarks, setSelfMarks] = useState<Record<string, number>>({});
   const [selfMarkResult, setSelfMarkResult] = useState<SelfMarkView | null>(null);
   const [recording, setRecording] = useState(false);
@@ -976,10 +1566,11 @@ function StructuredRevealFlow({
     parts.length > 0 && parts.every((p) => typeof selfMarks[p.id] === "number");
   const selfTotal = parts.reduce((sum, p) => sum + (selfMarks[p.id] ?? 0), 0);
 
-  // the attempt exists: the scheme reveals (post-attempt, demo-style free reveal)
+  // the attempt exists: the scheme reveals (post-attempt, demo-style free
+  // reveal). The dialog is conditionally mounted open, so this fetch runs
+  // once per open with "loading" as the initial state.
   useEffect(() => {
     let cancelled = false;
-    setSchemeState("loading");
     api
       .markScheme(question.id)
       .then((s) => {
@@ -1021,160 +1612,223 @@ function StructuredRevealFlow({
     }
   }
 
-  if (selfMarkResult) {
-    return (
-      <div className="space-y-4">
-        <Alert>
-          <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
-          <AlertTitle>
-            Self-marked — {selfMarkResult.marksAwarded}/{selfMarkResult.marksTotal} marks
-          </AlertTitle>
-          <AlertDescription>
-            Recorded and your mastery estimate has been updated
-            {selfMarkResult.evidenceFired ? " (evidence fired)" : ""}. Your teacher can
-            still review and override it — self-marks never enter the teacher κ
-            calibration sample.
-          </AlertDescription>
-        </Alert>
-        <ul className="space-y-1 text-sm text-muted-foreground">
-          {selfMarkResult.parts.map((part) => (
-            <li key={part.partId} className="flex items-center justify-between gap-2">
-              <span>Part {part.label}</span>
-              <span className="text-xs">
-                {part.marksAwarded}/{part.marksPossible} marks (self-assessed)
-              </span>
-            </li>
-          ))}
-        </ul>
-        <Button variant="outline" onClick={onDone}>
-          <RotateCcw className="size-4" aria-hidden="true" />
-          Try again
-        </Button>
-      </div>
-    );
-  }
+  const longRestate = (question.stem ?? "").length > 220;
 
   return (
-    <div className="space-y-4">
-      <Alert>
-        <Send className="size-4 text-blue-600" aria-hidden="true" />
-        <AlertTitle>Submitted — {attempt.marksPossible} marks</AlertTitle>
-        <AlertDescription>
-          Your written answers are stored. Mark yourself against the scheme below —
-          tick what you earned — or leave it for your teacher.
-        </AlertDescription>
-      </Alert>
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        aria-describedby={undefined}
+        className="exam-theme h-[92vh] max-w-4xl overflow-y-auto sm:h-[92vh]"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex flex-wrap items-center gap-2 text-base">
+            <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-medium">
+              Mark scheme
+            </Badge>
+            <span className="text-sm font-normal text-muted-foreground">
+              tick what you earned
+            </span>
+          </DialogTitle>
+        </DialogHeader>
 
-      {schemeState === "loading" && <Skeleton className="h-24 w-full" />}
-
-      {schemeState === "withheld" && (
-        <p className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          The mark scheme isn&apos;t open for self-marking yet (awaiting teacher
-          validation). Your answers stay in the teacher marking queue.
-        </p>
-      )}
-
-      {schemeState === "error" && (
-        <p className="text-sm text-destructive">
-          The mark scheme couldn&apos;t be loaded — your answers stay in the teacher
-          marking queue.
-        </p>
-      )}
-
-      {schemeState === "open" && scheme && (
-        <div className="space-y-4">
-          <div className="rounded-lg border bg-muted/30 p-4">
-            <p className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
-              <PenLine className="size-4" aria-hidden="true" /> Mark scheme — tick what you
-              earned
-            </p>
-            <div className="space-y-4">
-              {parts.map((part) => {
-                const schemePart = scheme.parts.find((sp) => sp.partId === part.id);
-                return (
-                  <div key={part.id} className="space-y-2 rounded-md border bg-background p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold">
-                        <span className="inline-flex size-6 items-center justify-center rounded border bg-muted font-mono text-xs">
-                          {part.label}
-                        </span>
-                        your answer
-                      </span>
-                      <MarksStepper
-                        value={selfMarks[part.id]}
-                        max={part.marks}
-                        onChange={(v) => setSelfMarks((prev) => ({ ...prev, [part.id]: v }))}
-                      />
-                    </div>
-                    <p className="whitespace-pre-wrap rounded border bg-muted/40 p-2 text-xs text-muted-foreground">
-                      {(partAnswers[part.id] ?? "").trim() || "(left blank)"}
-                    </p>
-                    {schemePart && schemePart.points.length > 0 ? (
-                      <ul className="space-y-1.5">
-                        {schemePart.points.map((p, i) => (
-                          <li
-                            key={`${p.ref ?? "pt"}-${i}`}
-                            className="flex items-start gap-2 text-sm"
-                          >
-                            <span className="mt-0.5 shrink-0 rounded border border-slate-300 bg-slate-50 px-1 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-                              {p.ref ?? "•"}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <QuestionMarkdown>{p.text}</QuestionMarkdown>
-                            </span>
-                            <span className="mt-0.5 shrink-0 text-[11px] text-muted-foreground">
-                              {p.marks} mark{p.marks === 1 ? "" : "s"}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        No scheme points published for this part.
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
+        {selfMarkResult ? (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-emerald-600/30 bg-emerald-600/5 p-4 dark:border-emerald-400/30 dark:bg-emerald-400/5">
+              <p className="flex items-center gap-2 text-sm font-semibold">
+                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                Self-marked — {selfMarkResult.marksAwarded}/{selfMarkResult.marksTotal} marks
+              </p>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                Recorded and your mastery estimate has been updated
+                {selfMarkResult.evidenceFired ? " (evidence fired)" : ""}. Your
+                teacher can still review and override it — self-marks never enter
+                the teacher κ calibration sample.
+              </p>
             </div>
-            {scheme.generalPoints.length > 0 && (
-              <div className="mt-3 rounded-md border border-dashed p-3">
-                <p className="mb-1 text-xs font-semibold text-muted-foreground">
-                  General marking points
-                </p>
-                {scheme.generalPoints.map((p, i) => (
-                  <QuestionMarkdown key={`${p.ref ?? "gp"}-${i}`}>{p.text}</QuestionMarkdown>
-                ))}
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              {selfMarkResult.parts.map((part) => (
+                <li key={part.partId} className="flex items-center justify-between gap-2">
+                  <span>Part {part.label}</span>
+                  <span className="text-xs">
+                    {part.marksAwarded}/{part.marksPossible} marks (self-assessed)
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-wrap gap-2 border-t pt-3">
+              <Button variant="outline" onClick={onDone}>
+                <RotateCcw className="size-4" aria-hidden="true" />
+                Try again
+              </Button>
+              <Button variant="ghost" onClick={onClose}>
+                Close
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {schemeState === "loading" && <Skeleton className="h-32 w-full" />}
+
+            {schemeState === "withheld" && (
+              <div className="rounded-md border border-amber-700/30 bg-amber-700/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+                The mark scheme isn&apos;t open for self-marking yet (awaiting
+                teacher validation). Your answers stay in the teacher marking
+                queue.
               </div>
             )}
-          </div>
 
-          {recordError && (
-            <Alert variant="destructive">
-              <AlertDescription>{recordError}</AlertDescription>
-            </Alert>
-          )}
+            {schemeState === "error" && (
+              <div className="rounded-md border border-amber-700/30 bg-amber-700/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+                The mark scheme couldn&apos;t be loaded — your answers stay in the
+                teacher marking queue.
+              </div>
+            )}
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={recordSelfMarks} disabled={!allSelfMarked || recording}>
-              {recording ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <CheckCircle2 className="size-4" aria-hidden="true" />
-              )}
-              Record my self-marks{allSelfMarked ? ` (${selfTotal}/${attempt.marksPossible})` : ""}
-            </Button>
-            <Button variant="ghost" onClick={onDone}>
-              Skip — leave it for the teacher
-            </Button>
+            {schemeState === "open" && scheme && (
+              <>
+                {/* question restate with Show more (demo) */}
+                {question.stem && (
+                  <section className="space-y-2 rounded-lg border bg-card p-4">
+                    <div className={cn(!expanded && longRestate && "relative max-h-24 overflow-hidden")}>
+                      <QuestionMarkdown>{question.stem}</QuestionMarkdown>
+                      {!expanded && longRestate && (
+                        <div
+                          className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-card to-transparent"
+                          aria-hidden
+                        />
+                      )}
+                    </div>
+                    {longRestate && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs text-primary"
+                        onClick={() => setExpanded((v) => !v)}
+                      >
+                        {expanded ? "Show less" : "Show more"}
+                      </Button>
+                    )}
+                  </section>
+                )}
+
+                {parts.map((part) => {
+                  const schemePart = scheme.parts.find((sp) => sp.partId === part.id);
+                  const typed = (partAnswers[part.id] ?? "").trim();
+                  return (
+                    <section key={part.id} className="space-y-2 rounded-lg border bg-card p-4">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-md bg-muted px-2 py-0.5 text-[13px] font-semibold">
+                          {parts.length > 1 ? part.label : "Q"}
+                        </span>
+                        {/* SME (figure 16): part marks right-aligned in the scheme row */}
+                        <span className="ml-auto text-[13px] text-muted-foreground">
+                          {part.marks} mark{part.marks === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <PartProblem md={part.prompt} />
+                      {typed && (
+                        <div className="rounded-md border border-dashed border-primary/40 bg-primary/5 p-3">
+                          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-primary">
+                            <PenLine className="size-3" aria-hidden /> Your typed answer
+                          </p>
+                          <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{typed}</p>
+                          <p className="mt-1.5 text-[11px] text-muted-foreground">
+                            Compare it with the marking points below — award yourself
+                            the marks you clearly earned.
+                          </p>
+                        </div>
+                      )}
+                      {schemePart && schemePart.points.length > 0 ? (
+                        <ul className="space-y-1.5 border-t pt-2">
+                          {schemePart.points.map((p, i) => (
+                            <li
+                              key={`${p.ref ?? "pt"}-${i}`}
+                              className="flex items-start gap-2 text-sm"
+                            >
+                              <span className="mt-0.5 shrink-0 rounded border border-slate-300 bg-slate-50 px-1 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+                                {p.ref ?? "•"}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <QuestionMarkdown>{transformMarkTags(p.text)}</QuestionMarkdown>
+                              </span>
+                              <span className="mt-0.5 shrink-0 text-[11px] text-muted-foreground">
+                                {p.marks} mark{p.marks === 1 ? "" : "s"}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="border-t pt-2 text-xs text-muted-foreground">
+                          No scheme points published for this part.
+                        </p>
+                      )}
+                      {/* the production self-mark stepper — demo's "award
+                          yourself the marks you clearly earned", made real */}
+                      <div className="flex items-center justify-between gap-2 border-t pt-2">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Your mark for this part
+                        </span>
+                        <MarksStepper
+                          value={selfMarks[part.id]}
+                          max={part.marks}
+                          onChange={(v) => setSelfMarks((prev) => ({ ...prev, [part.id]: v }))}
+                        />
+                      </div>
+                    </section>
+                  );
+                })}
+
+                {scheme.generalPoints.length > 0 && (
+                  <div className="rounded-lg border border-dashed p-4">
+                    <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
+                      General marking points
+                    </p>
+                    {scheme.generalPoints.map((p, i) => (
+                      <QuestionMarkdown key={`${p.ref ?? "gp"}-${i}`}>{p.text}</QuestionMarkdown>
+                    ))}
+                  </div>
+                )}
+
+                {recordError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{recordError}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+                  <Button onClick={recordSelfMarks} disabled={!allSelfMarked || recording}>
+                    {recording ? (
+                      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <CheckCircle2 className="size-4" aria-hidden="true" />
+                    )}
+                    Record my self-marks
+                    {allSelfMarked ? ` (${selfTotal}/${attempt.marksPossible})` : ""}
+                  </Button>
+                  <Button variant="ghost" onClick={onClose}>
+                    Skip — leave it for the teacher
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Marking points are AND-joined (all required for the mark).
+                  Self-marking updates your mastery estimate immediately; it is
+                  recorded separately from teacher marks (never in the κ
+                  calibration sample) and your teacher can still override it.
+                </p>
+              </>
+            )}
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            Self-marking updates your mastery estimate immediately. It is recorded
-            separately from teacher marks (never in the κ calibration sample), and
-            your teacher can still override it.
-          </p>
-        </div>
-      )}
-    </div>
+        )}
+
+        <button
+          type="button"
+          className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100"
+          onClick={onClose}
+          aria-label="Close mark scheme"
+        >
+          <X className="size-4" aria-hidden />
+        </button>
+      </DialogContent>
+    </Dialog>
   );
 }

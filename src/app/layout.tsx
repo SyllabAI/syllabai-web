@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Kodchasan, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
@@ -10,6 +10,19 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+// SME demo-parity fonts (session-119) — scoped to the Exam Questions surface
+// through .exam-theme in globals.css; the workbench default stays Geist.
+const jakartaSans = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
+  subsets: ["latin"],
+});
+
+const kodchasan = Kodchasan({
+  variable: "--font-kodchasan",
+  weight: ["400", "600", "700"],
   subsets: ["latin"],
 });
 
@@ -30,7 +43,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} ${jakartaSans.variable} ${kodchasan.variable} antialiased bg-background text-foreground`}
       >
         {children}
         <Toaster />

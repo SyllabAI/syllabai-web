@@ -421,6 +421,7 @@ export default function SyllabAiWorkbench() {
               rootId={rootId}
               graph={graph}
               history={history}
+              subjectName={subjectName}
               onAttemptSubmitted={handleAttemptSubmitted}
               onAskTutorAbout={onAskTutorAbout}
             />
