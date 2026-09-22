@@ -9,7 +9,26 @@
  *
  * The bearer token is kept in localStorage for the v0 pilot (httpOnly-cookie
  * hardening is tracked for Wave 4).
+ *
+ * Free-tier resilience (Render spins the core down after 15 min idle; a wake
+ * is a full JVM + Spring boot):
+ * - identical in-flight GETs are de-duplicated (one network round-trip);
+ * - a GET that dies with a network error (the wake occasionally drops the
+ *   first connection) is retried once before surfacing an error;
+ * - requests slower than 3 s (and not preceded by a recent success) emit
+ *   `syllabai:backend-waking` so the UI can say what is happening instead of
+ *   spinning silently; every success emits `syllabai:backend-ok`;
+ * - content GETs (subjects, tree, questions, papers) read through the
+ *   localStorage cache in ./api-cache — repeat visits never wake the
+ *   backend at all;
+ * - `wakeBackend()` fires ONE unauthenticated health request per browser
+ *   session when a human lands on the login screen, so the boot happens
+ *   while they type credentials. It is a single request tied to a real page
+ *   view — deliberately NOT a keep-alive pinger: pinging a free Render
+ *   service on a timer to defeat spin-down violates their Terms of Service
+ *   and risks account suspension.
  */
+import { cachedGet, invalidateContentCache, singleFlight } from "./api-cache";
 import type {
   AttemptHistoryView,
   ClaAnswerView,
@@ -131,13 +150,102 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
-  if (init?.body) headers.set("Content-Type", "application/json");
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+// ── backend-waking signals ─────────────────────────────────────────────
+// A request >3 s with no success in the last 60 s is almost certainly a
+// Render cold boot (or a network hiccup pretending to be one). The page
+// subscribes to these events and shows an honest "waking up" banner
+// instead of a silent spinner. Throttled so a slow burst of parallel boot
+// calls cannot spam the UI.
+const WAKING_EVENT = "syllabai:backend-waking";
+const OK_EVENT = "syllabai:backend-ok";
+const SLOW_AFTER_MS = 3_000;
+const WAKE_EVENT_COOLDOWN_MS = 30_000;
+const WARM_WINDOW_MS = 60_000;
+let lastOkAt = 0;
+let lastWakingEventAt = 0;
 
-  const response = await fetch(apiPath(path), { ...init, headers });
+function fireWaking(): void {
+  const now = Date.now();
+  if (now - lastOkAt < WARM_WINDOW_MS) return; // recently warm — not a cold boot
+  if (now - lastWakingEventAt < WAKE_EVENT_COOLDOWN_MS) return;
+  lastWakingEventAt = now;
+  window.dispatchEvent(new Event(WAKING_EVENT));
+}
+
+function fireOk(): void {
+  lastOkAt = Date.now();
+  window.dispatchEvent(new Event(OK_EVENT));
+}
+
+/**
+ * ONE unauthenticated GET /actuator/health per browser session, fired when a
+ * human being lands on the login screen. With the core's eager Spring init,
+ * Tomcat only accepts connections after Flyway + Hibernate are up — so a
+ * health response means the login POST that follows lands on a fully warm
+ * server. Guarded by sessionStorage; failures swallowed by design. This is
+ * user-triggered prefetch, NOT a keep-alive pinger (Render ToS: services
+ * kept perpetually awake by uptime pingers risk suspension — do not turn
+ * this into a timer).
+ */
+export function wakeBackend(): void {
+  if (typeof window === "undefined") return;
+  const GUARD = "syllabai.wake-pinged";
+  try {
+    if (sessionStorage.getItem(GUARD) === "1") return;
+    sessionStorage.setItem(GUARD, "1");
+  } catch {
+    return; // storage blocked — skip the ping rather than risk repeats
+  }
+  void fetch(apiPath("/actuator/health"), { method: "GET", cache: "no-store" }).then(
+    () => {
+      lastOkAt = Date.now();
+    },
+    () => {
+      /* the wake ping is best-effort; the login POST will trigger the boot anyway */
+    },
+  );
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const url = apiPath(path);
+  const isGet = !init?.method || init.method === "GET";
+  // Identical in-flight GETs share one request (StrictMode double-mounts,
+  // concurrent boot calls while the backend is cold).
+  if (isGet) return singleFlight(url, () => doRequest<T>(path, url, init));
+  return doRequest<T>(path, url, init);
+}
+
+async function doRequest<T>(path: string, url: string, init?: RequestInit): Promise<T> {
+  const isGet = !init?.method || init.method === "GET";
+  let wakingTimer: ReturnType<typeof setTimeout> | null = setTimeout(fireWaking, SLOW_AFTER_MS);
+
+  // Headers are built per attempt so a retry re-reads the token (a 401 from
+  // the first attempt may have just cleared the stale session).
+  const go = () => {
+    const h = new Headers(init?.headers);
+    if (init?.body) h.set("Content-Type", "application/json");
+    const t = getToken();
+    if (t) h.set("Authorization", `Bearer ${t}`);
+    return fetch(url, { ...init, headers: h });
+  };
+
+  let response: Response;
+  try {
+    try {
+      response = await go();
+    } catch (err) {
+      // A cold Render instance sometimes resets the very first connection.
+      // One retry for GETs before we surface an error to the user.
+      if (!isGet || !(err instanceof TypeError)) throw err;
+      await new Promise((r) => setTimeout(r, 1_200));
+      response = await go();
+    }
+  } finally {
+    if (wakingTimer) {
+      clearTimeout(wakingTimer);
+      wakingTimer = null;
+    }
+  }
 
   if (response.status === 401 && !path.startsWith("/api/v1/auth/")) {
     // an authenticated call lost its session (expired/invalid token) — clear and
@@ -164,8 +272,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(response.status, message);
   }
   if (response.status === 204) {
+    fireOk();
     return undefined as T;
   }
+  fireOk();
   return (await response.json()) as T;
 }
 
@@ -223,6 +333,17 @@ export function fetchQuestionAsset(filename: string): Promise<string> {
   return promise;
 }
 
+/**
+ * Teacher/content mutations that change what the serving gate exposes run
+ * through this wrapper: on success, every cached content payload is dropped
+ * so the next content GET re-fetches the post-validation truth.
+ */
+async function contentMutation<T>(path: string, init: RequestInit): Promise<T> {
+  const result = await request<T>(path, init);
+  invalidateContentCache();
+  return result;
+}
+
 export const api = {
   login: (email: string, password: string) =>
     request<AuthResponse>("/api/v1/auth/login", {
@@ -236,15 +357,26 @@ export const api = {
       body: JSON.stringify({ email, password, displayName }),
     }),
 
-  subjects: () => request<SubjectView[]>("/api/v1/curriculum/subjects"),
+  // ── content GETs (cached, see ./api-cache): user-independent curriculum /
+  // question / paper payloads behind the serving gate. A repeat visit serves
+  // these from localStorage and never wakes the sleeping Render instance. ──
+
+  subjects: () =>
+    cachedGet<SubjectView[]>("subjects", () =>
+      request<SubjectView[]>("/api/v1/curriculum/subjects"),
+    ),
 
   knowledgeTree: (rootId: string, includeMisconceptions = true) =>
-    request<NodeView>(
-      `/api/v1/knowledge/nodes/${rootId}/tree?includeMisconceptions=${includeMisconceptions}`,
+    cachedGet<NodeView>(`tree.${rootId}.${includeMisconceptions}`, () =>
+      request<NodeView>(
+        `/api/v1/knowledge/nodes/${rootId}/tree?includeMisconceptions=${includeMisconceptions}`,
+      ),
     ),
 
   prerequisites: (nodeId: string) =>
-    request<PrerequisiteView[]>(`/api/v1/knowledge/nodes/${nodeId}/prerequisites`),
+    cachedGet<PrerequisiteView[]>(`prereq.${nodeId}`, () =>
+      request<PrerequisiteView[]>(`/api/v1/knowledge/nodes/${nodeId}/prerequisites`),
+    ),
 
   questions: (topicNodeId?: string, rootId?: string) => {
     // subject-scoped practice (pilot-readiness session-56): rootId narrows the
@@ -254,7 +386,10 @@ export const api = {
     if (topicNodeId) params.set("topicNodeId", topicNodeId);
     else if (rootId) params.set("rootId", rootId);
     const qs = params.toString();
-    return request<StudentQuestionView[]>(`/api/v1/questions${qs ? `?${qs}` : ""}`);
+    const path = `/api/v1/questions${qs ? `?${qs}` : ""}`;
+    return cachedGet<StudentQuestionView[]>(`questions.${topicNodeId ?? rootId ?? "all"}`, () =>
+      request<StudentQuestionView[]>(path),
+    );
   },
 
   // session-112: the servable-question taxonomy (sections → topics with
@@ -317,6 +452,9 @@ export const api = {
     request<AttemptHistoryView>(
       `/api/v1/learners/me/attempts${limit ? `?limit=${limit}` : ""}`,
     ),
+
+  // ── per-user read models: NEVER cached (must always reflect the learner's
+  // live evidence) and never silently served stale. ──
 
   learnerKnowledgeGraph: (rootId: string) =>
     request<LearnerKnowledgeGraphView>(
@@ -421,13 +559,16 @@ export const api = {
     }),
 
   conceptGraphActivate: () =>
-    request<ConceptGraphSeedSummary>("/api/v1/teacher/concept-graph/activate", {
-      method: "POST",
-    }),
+    contentMutation<ConceptGraphSeedSummary>(
+      "/api/v1/teacher/concept-graph/activate",
+      { method: "POST" },
+    ),
 
   conceptGraphEdges: (rootId: string) =>
-    request<ConceptGraphEdgesView>(
-      `/api/v1/teacher/concept-graph/edges?rootId=${encodeURIComponent(rootId)}`,
+    cachedGet<ConceptGraphEdgesView>(`concept-edges.${rootId}`, () =>
+      request<ConceptGraphEdgesView>(
+        `/api/v1/teacher/concept-graph/edges?rootId=${encodeURIComponent(rootId)}`,
+      ),
     ),
 
   // ── P9 Test Builder (route security: TEACHER or ADMIN) ──
@@ -473,6 +614,9 @@ export const api = {
     ),
 
   // ── teacher content validation (Master Spec §7: SUGGESTED never serves) ──
+  // Mutations run through contentMutation → cache invalidation on success;
+  // the review queues themselves stay live (they reflect DB state the
+  // teacher is actively working through).
 
   contentReviewQueue: () =>
     request<TeacherReviewQueueView>("/api/v1/teacher/content/review-queue"),
@@ -483,43 +627,43 @@ export const api = {
     ),
 
   validatePaper: (paperId: string) =>
-    request<TeacherPaperSummary>(
+    contentMutation<TeacherPaperSummary>(
       `/api/v1/teacher/content/exam-papers/${paperId}/validate`,
       { method: "POST" },
     ),
 
   placePaper: (paperId: string, subjectId: string) =>
-    request<TeacherPaperSummary>(
+    contentMutation<TeacherPaperSummary>(
       `/api/v1/teacher/content/exam-papers/${paperId}/place`,
       { method: "POST", body: JSON.stringify({ subjectId }) },
     ),
 
   rejectPaper: (paperId: string) =>
-    request<TeacherPaperSummary>(
+    contentMutation<TeacherPaperSummary>(
       `/api/v1/teacher/content/exam-papers/${paperId}/reject`,
       { method: "POST" },
     ),
 
   validateQuestionVersion: (versionId: string) =>
-    request<TeacherVersionActionResult>(
+    contentMutation<TeacherVersionActionResult>(
       `/api/v1/teacher/content/question-versions/${versionId}/validate`,
       { method: "POST" },
     ),
 
   rejectQuestionVersion: (versionId: string) =>
-    request<TeacherVersionActionResult>(
+    contentMutation<TeacherVersionActionResult>(
       `/api/v1/teacher/content/question-versions/${versionId}/reject`,
       { method: "POST" },
     ),
 
   validateMarkScheme: (schemeId: string) =>
-    request<TeacherSchemeActionResult>(
+    contentMutation<TeacherSchemeActionResult>(
       `/api/v1/teacher/content/mark-schemes/${schemeId}/validate`,
       { method: "POST", body: JSON.stringify({}) },
     ),
 
   rejectMarkScheme: (schemeId: string) =>
-    request<TeacherSchemeActionResult>(
+    contentMutation<TeacherSchemeActionResult>(
       `/api/v1/teacher/content/mark-schemes/${schemeId}/reject`,
       { method: "POST" },
     ),
@@ -538,7 +682,7 @@ export const api = {
     ),
 
   validateAllForPaper: (paperId: string, force = false) =>
-    request<TeacherValidateAllResult>(
+    contentMutation<TeacherValidateAllResult>(
       `/api/v1/teacher/content/exam-papers/${paperId}/validate-all${force ? "?force=true" : ""}`,
       { method: "POST" },
     ),
@@ -555,37 +699,37 @@ export const api = {
     ),
 
   flagPaper: (paperId: string) =>
-    request<TeacherPaperSummary>(
+    contentMutation<TeacherPaperSummary>(
       `/api/v1/teacher/content/exam-papers/${paperId}/flag`,
       { method: "POST" },
     ),
 
   unflagPaper: (paperId: string) =>
-    request<TeacherPaperSummary>(
+    contentMutation<TeacherPaperSummary>(
       `/api/v1/teacher/content/exam-papers/${paperId}/unflag`,
       { method: "POST" },
     ),
 
   flagQuestionVersion: (versionId: string) =>
-    request<TeacherVersionActionResult>(
+    contentMutation<TeacherVersionActionResult>(
       `/api/v1/teacher/content/question-versions/${versionId}/flag`,
       { method: "POST" },
     ),
 
   unflagQuestionVersion: (versionId: string) =>
-    request<TeacherVersionActionResult>(
+    contentMutation<TeacherVersionActionResult>(
       `/api/v1/teacher/content/question-versions/${versionId}/unflag`,
       { method: "POST" },
     ),
 
   flagMarkScheme: (schemeId: string) =>
-    request<TeacherSchemeActionResult>(
+    contentMutation<TeacherSchemeActionResult>(
       `/api/v1/teacher/content/mark-schemes/${schemeId}/flag`,
       { method: "POST" },
     ),
 
   unflagMarkScheme: (schemeId: string) =>
-    request<TeacherSchemeActionResult>(
+    contentMutation<TeacherSchemeActionResult>(
       `/api/v1/teacher/content/mark-schemes/${schemeId}/unflag`,
       { method: "POST" },
     ),
@@ -593,7 +737,7 @@ export const api = {
   // ── §10 topic mapping: ingestion anchors -> real curriculum topics ──
 
   mapQuestionTopics: (questionId: string, primaryNodeId: string, secondaryNodeIds: string[] = []) =>
-    request<TeacherTopicMappingResult>(
+    contentMutation<TeacherTopicMappingResult>(
       `/api/v1/teacher/content/questions/${questionId}/topics`,
       { method: "POST", body: JSON.stringify({ primaryNodeId, secondaryNodeIds }) },
     ),
@@ -606,15 +750,20 @@ export const api = {
   // ── exam papers (learner browsing; content stays behind the serving gate) ──
 
   examPapers: (subjectId?: string) =>
-    request<ExamPaperBrowseView[]>(
-      `/api/v1/exam-papers${subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : ""}`,
+    cachedGet<ExamPaperBrowseView[]>(`papers.${subjectId ?? "all"}`, () =>
+      request<ExamPaperBrowseView[]>(
+        `/api/v1/exam-papers${subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : ""}`,
+      ),
     ),
 
   examPaper: (paperId: string) =>
-    request<ExamPaperDetailView>(`/api/v1/exam-papers/${paperId}`),
+    cachedGet<ExamPaperDetailView>(`paper.${paperId}`, () =>
+      request<ExamPaperDetailView>(`/api/v1/exam-papers/${paperId}`),
+    ),
 
   // single servable question with its parts (404 when not servable — the
-  // same gate the practice list applies)
+  // same gate the practice list applies). Live, not cached: the exam player
+  // fetches on demand and single-flight already de-dupes concurrent fetches.
   question: (id: string) =>
     request<StudentQuestionView>(`/api/v1/questions/${id}`),
 

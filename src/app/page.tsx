@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AppHeader } from "@/components/syllabai/AppHeader";
+import { BackendStatus } from "@/components/syllabai/BackendStatus";
 import { LoginView } from "@/components/syllabai/LoginView";
 import { DashboardView } from "@/components/syllabai/DashboardView";
 import { HistoryView } from "@/components/syllabai/HistoryView";
@@ -303,17 +304,21 @@ export default function SyllabAiWorkbench() {
 
   if (!auth) {
     return (
-      <LoginView
-        onAuthenticated={(session) => {
-          setSession(session);
-          setAuth(session);
-        }}
-      />
+      <div className="flex min-h-screen flex-col bg-muted/40">
+        <BackendStatus />
+        <LoginView
+          onAuthenticated={(session) => {
+            setSession(session);
+            setAuth(session);
+          }}
+        />
+      </div>
     );
   }
 
   return (
     <div className="flex min-h-screen flex-col bg-muted/40">
+      <BackendStatus />
       <AppHeader
         user={auth.user}
         subjects={subjectsList}

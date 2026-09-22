@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { GraduationCap, Loader2, LogIn, UserPlus } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, wakeBackend } from "@/lib/api";
 import type { AuthResponse } from "@/lib/types";
 
 interface LoginViewProps {
@@ -21,6 +21,13 @@ export function LoginView({ onAuthenticated }: LoginViewProps) {
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // A human just landed on the login screen: fire the ONE per-session health
+  // ping so the Render instance boots while they type their credentials
+  // (guarded inside wakeBackend — never a timer, never a keep-alive pinger).
+  useEffect(() => {
+    wakeBackend();
+  }, []);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -36,7 +43,12 @@ export function LoginView({ onAuthenticated }: LoginViewProps) {
       if (err instanceof ApiError) {
         setError(err.message);
       } else if (err instanceof TypeError) {
-        setError("Cannot reach the SyllabAI backend. Is it running?");
+        // Almost always the free-tier cold boot racing the login POST, or a
+        // dropped first connection — say so honestly and invite a retry
+        // instead of implying the backend is down for good.
+        setError(
+          "Reaching the SyllabAI server… it may be waking up (free tier sleeps when idle). Please wait a few seconds and try again.",
+        );
       } else {
         setError("Something went wrong — please try again.");
       }

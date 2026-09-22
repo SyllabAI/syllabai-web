@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -56,14 +56,7 @@ export function SmartMarkPanel({
   const [result, setResult] = useState<SmartMarkAttemptView | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // exam-questions mode: the mounting click already committed to smart marking
-  useEffect(() => {
-    if (autoRun && !result && !error && !marking) {
-      void runSmartMark();
-    }
-  }, [autoRun, result, error, marking]);
-
-  async function runSmartMark() {
+  const runSmartMark = useCallback(async () => {
     setMarking(true);
     setError(null);
     try {
@@ -78,7 +71,14 @@ export function SmartMarkPanel({
     } finally {
       setMarking(false);
     }
-  }
+  }, [attemptId]);
+
+  // exam-questions mode: the mounting click already committed to smart marking
+  useEffect(() => {
+    if (autoRun && !result && !error && !marking) {
+      void runSmartMark();
+    }
+  }, [autoRun, result, error, marking, runSmartMark]);
 
   if (marking) {
     return (
