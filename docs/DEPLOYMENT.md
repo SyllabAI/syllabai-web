@@ -59,8 +59,15 @@ strategy (see `src/lib/api-cache.ts` + `src/lib/api.ts`):
   free-tier wake instead of a silent spinner); network-failed GETs retry once;
   the login screen's "cannot reach" message names the cold start.
 
-**Hard rule — do not add an uptime pinger/keep-alive timer for the Render
-service.** Render's ToS prohibit defeating free-tier spin-down that way and
-it risks account suspension. The per-session login ping above is tied to a
-real page view and is the maximum acceptable. The 6-hourly `pilot-monitor`
-GitHub Action is availability monitoring — do not increase its frequency.
+**Hard rule — no uptime pingers.** Render's ToS prohibit defeating free-tier
+spin-down with keep-alive traffic; services kept artificially awake risk
+account suspension. The per-session login ping above is tied to a real page
+view and is the maximum acceptable on the client side. The ONLY sanctioned
+scheduled wake is the existing once-daily `vercel.json` cron
+(`/api/cron/keep-alive`, 02:50 UTC) that covers the 03:00 UTC decay-job
+window — one bounded wake per day (~15–30 instance-hours/month); never
+extend it to a more frequent schedule. Availability monitoring lives in the
+public `SyllabAI/syllabai-ops` repo (6-hourly probe, migrated there
+2026-09-16 when this repo's Actions quota died) — it reports on real
+availability and its frequency must stay at 6 h, not creep up into
+keep-alive territory.
