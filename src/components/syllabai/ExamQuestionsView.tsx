@@ -67,6 +67,13 @@ import {
   XCircle,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import {
+  buildQuestionUnits,
+  savedKeysOfUnit,
+  unitIsAttempted,
+  unitIsSaved,
+  type ExamQuestionUnit,
+} from "@/lib/exam-families";
 import type {
   AttemptHistoryView,
   AttemptResultView,
@@ -142,10 +149,15 @@ function subscribeSaved(notify: () => void) {
 
 const EMPTY_SAVED: Set<string> = new Set();
 
-function toggleSavedId(id: string) {
+/** Save/unsave a whole family: the family key plus every member row id (so
+ * bookmarks stored per-row before families existed — session-119 — keep
+ * resolving, and un-saving clears them all). */
+function setSavedMembership(keys: string[], member: boolean) {
   const next = new Set(savedSnapshot());
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
+  for (const k of keys) {
+    if (member) next.add(k);
+    else next.delete(k);
+  }
   try {
     localStorage.setItem(SAVED_KEY, JSON.stringify([...next]));
   } catch {
@@ -188,6 +200,16 @@ export function ExamQuestionsView({
   const [questionsTopic, setQuestionsTopic] = useState<string | null>(null);
   const savedIds = useSyncExternalStore(subscribeSaved, savedSnapshot, () => EMPTY_SAVED);
   const [savedOnly, setSavedOnly] = useState(false);
+
+  /** bookmarks operate on whole questions (families), session-120 */
+  const toggleSavedUnit = useCallback(
+    (unit: ExamQuestionUnit) => {
+      const keys = savedKeysOfUnit(unit);
+      const member = keys.some((k) => savedIds.has(k));
+      setSavedMembership(keys, !member);
+    },
+    [savedIds],
+  );
 
   // node id -> this learner's mastery state (the sidebar tint)
   const masteryByNode = useMemo(() => {
@@ -365,7 +387,7 @@ export function ExamQuestionsView({
         </div>
         <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
           {activeSelected
-            ? `${activeSelected.questionCount} questions in this topic — answer inline, self-mark against the mark scheme, or let Smart Mark give you feedback without giving the scheme away.`
+            ? "Answer inline, self-mark against the mark scheme, or let Smart Mark give you feedback without giving the scheme away."
             : `Exam-style questions organised by topic — ${taxonomy.totalDistinctQuestions} questions across ${allTopics.length} topics, with parts, command words, mark schemes and self-marking.`}
         </p>
       </header>
@@ -456,7 +478,7 @@ export function ExamQuestionsView({
               savedIds={savedIds}
               savedOnly={savedOnly}
               onToggleSavedOnly={() => setSavedOnly((v) => !v)}
-              onToggleSaved={toggleSavedId}
+              onToggleSaved={toggleSavedUnit}
               onAttemptSubmitted={onAttemptSubmitted}
               onAskTutorAbout={onAskTutorAbout}
             />
@@ -559,40 +581,46 @@ function TopicPane({
   savedIds: Set<string>;
   savedOnly: boolean;
   onToggleSavedOnly: () => void;
-  onToggleSaved: (id: string) => void;
+  onToggleSaved: (unit: ExamQuestionUnit) => void;
   onAttemptSubmitted: () => void;
   onAskTutorAbout?: (draft: string) => void;
 }) {
   const [difficulty, setDifficulty] = useState<DifficultyFilter>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | "mcq" | "structured">("all");
 
+  // whole questions (families), SME page order — the demo's serving unit
+  const units = useMemo(
+    () => buildQuestionUnits(questions ?? []),
+    [questions],
+  );
+
   const counts = useMemo(() => {
     const c: Record<DifficultyFilter, number> = {
-      all: questions?.length ?? 0,
+      all: units.length,
       easy: 0,
       medium: 0,
       hard: 0,
     };
-    for (const q of questions ?? []) c[bandOf(q.difficulty)] += 1;
+    for (const u of units) c[bandOf(u.difficulty)] += 1;
     return c;
-  }, [questions]);
+  }, [units]);
 
   const visible = useMemo(() => {
-    let list = questions ?? [];
-    if (difficulty !== "all") list = list.filter((q) => bandOf(q.difficulty) === difficulty);
-    if (typeFilter === "mcq") list = list.filter((q) => q.type !== "STRUCTURED");
-    if (typeFilter === "structured") list = list.filter((q) => q.type === "STRUCTURED");
-    if (savedOnly) list = list.filter((q) => savedIds.has(q.id));
+    let list = units;
+    if (difficulty !== "all") list = list.filter((u) => bandOf(u.difficulty) === difficulty);
+    if (typeFilter === "mcq") list = list.filter((u) => u.type === "mcq");
+    if (typeFilter === "structured") list = list.filter((u) => u.type === "structured");
+    if (savedOnly) list = list.filter((u) => unitIsSaved(u, savedIds));
     return list;
-  }, [questions, difficulty, typeFilter, savedOnly, savedIds]);
+  }, [units, difficulty, typeFilter, savedOnly, savedIds]);
 
-  const isAttempted = (q: StudentQuestionView) => attemptedQuestionIds.has(q.id);
+  const isAttempted = (unit: ExamQuestionUnit) => unitIsAttempted(unit, attemptedQuestionIds);
 
-  const scrollTo = (id: string) => {
-    document.getElementById(`q-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const scrollTo = (key: string) => {
+    document.getElementById(`q-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const totalMarks = (questions ?? []).reduce((a, q) => a + q.marks, 0);
+  const totalMarks = units.reduce((a, u) => a + u.marks, 0);
   // SME-style duration estimate (demo set page: "2 hours · 23 questions")
   const estTime =
     totalMarks >= 80
@@ -601,10 +629,11 @@ function TopicPane({
 
   return (
     <div className="space-y-5">
-      {/* slim meta line (demo: "23 questions · 130 marks · ≈ 2 hours") */}
+      {/* slim meta line (demo: "23 questions · 130 marks · ≈ 2 hours") —
+          whole questions: a family's parts share one card and its marks sum */}
       <p className="text-sm text-muted-foreground">
         {questions
-          ? `${questions.length} questions · ${totalMarks} marks · ${estTime}`
+          ? `${units.length} questions · ${totalMarks} marks · ${estTime}`
           : `${topic.questionCount} questions (${topic.mcqCount} multiple choice · ${topic.structuredCount} structured)`}
       </p>
 
@@ -672,18 +701,18 @@ function TopicPane({
         </Button>
       </div>
 
-      {/* question number grid (demo jump-to-question) */}
+      {/* question number grid (demo jump-to-question) — whole questions */}
       {visible.length > 0 && (
         <div className="flex flex-wrap gap-1.5" aria-label="Jump to question">
-          {visible.map((q, i) => (
+          {visible.map((unit, i) => (
             <button
-              key={q.id}
+              key={unit.key}
               type="button"
-              onClick={() => scrollTo(q.id)}
-              aria-label={`Question ${i + 1}${isAttempted(q) ? " (attempted)" : ""}`}
+              onClick={() => scrollTo(unit.key)}
+              aria-label={`Question ${i + 1}${isAttempted(unit) ? " (attempted)" : ""}`}
               className={cn(
                 "flex size-9 items-center justify-center rounded-md border text-[13px] font-medium transition-colors",
-                isAttempted(q)
+                isAttempted(unit)
                   ? "border-primary bg-primary text-primary-foreground"
                   : "hover:border-primary/50 hover:text-primary",
               )}
@@ -724,14 +753,14 @@ function TopicPane({
           </p>
         )}
 
-        {visible.map((question, i) => (
+        {visible.map((unit, i) => (
           <ExamQuestionCard
-            key={question.id}
-            question={question}
+            key={unit.key}
+            unit={unit}
             index={i}
-            attempted={isAttempted(question)}
-            saved={savedIds.has(question.id)}
-            onToggleSaved={() => onToggleSaved(question.id)}
+            attempted={isAttempted(unit)}
+            saved={unitIsSaved(unit, savedIds)}
+            onToggleSaved={() => onToggleSaved(unit)}
             onAttemptSubmitted={onAttemptSubmitted}
             onAskTutorAbout={onAskTutorAbout}
           />
@@ -744,7 +773,7 @@ function TopicPane({
 // ── one question card: demo anatomy header + the production answer flow ───
 
 function ExamQuestionCard({
-  question,
+  unit,
   index,
   attempted,
   saved,
@@ -752,7 +781,7 @@ function ExamQuestionCard({
   onAttemptSubmitted,
   onAskTutorAbout,
 }: {
-  question: StudentQuestionView;
+  unit: ExamQuestionUnit;
   index: number;
   attempted: boolean;
   saved: boolean;
@@ -764,19 +793,20 @@ function ExamQuestionCard({
 
   return (
     <article
-      id={`q-${question.id}`}
+      id={`q-${unit.key}`}
       className="scroll-mt-24 rounded-xl border bg-card"
     >
-      {/* demo header strip: number chip · marks · difficulty · tried · actions */}
+      {/* demo header strip: number chip · marks · difficulty · tried · actions.
+          A family's marks are the SME question's total (parts sum). */}
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
         <span className="rounded-md bg-muted px-2 py-0.5 text-[13px] font-semibold">
           {index + 1}
         </span>
         <Badge variant="outline" className="text-[10px]">
-          {question.marks} mark{question.marks === 1 ? "" : "s"}
+          {unit.marks} mark{unit.marks === 1 ? "" : "s"}
         </Badge>
         <Badge variant="secondary" className="text-[10px] capitalize">
-          {bandOf(question.difficulty)}
+          {bandOf(unit.difficulty)}
         </Badge>
         {attempted && (
           <Badge
@@ -786,9 +816,9 @@ function ExamQuestionCard({
             <CheckCircle2 className="mr-0.5 size-3" aria-hidden /> attempted
           </Badge>
         )}
-        {question.externalRef ? (
+        {unit.ref ? (
           <span className="font-mono text-[10px] text-muted-foreground">
-            {question.externalRef}
+            {unit.ref}
           </span>
         ) : null}
         <div className="ml-auto flex items-center gap-1">
@@ -823,8 +853,8 @@ function ExamQuestionCard({
       <div className="px-4 py-4">
         {/* ONE stateful body instance renders both the inline card and the
             full-screen dialog — drafts and results persist across the toggle */}
-        <QuestionBody
-          question={question}
+        <UnitBody
+          unit={unit}
           index={index}
           fullScreen={fullFor}
           onFullScreenChange={setFullFor}
@@ -838,260 +868,352 @@ function ExamQuestionCard({
 
 // ── question body (shared by the list card + the full-screen dialog) ──────
 
-function QuestionBody({
-  question,
+/** Per-row answer-flow state. Hoisted into UnitBody so the inline card and
+ *  the full-screen dialog bind ONE state (drafts persist across the toggle,
+ *  the session-119 contract) — now per member row of a family, so every part
+ *  keeps its own attempt, confidence and response-time anchor. */
+type PartFlow = {
+  chosen: string | null;
+  mcqResult: AttemptResultView | null;
+  partAnswers: Record<string, string>;
+  attempt: StructuredAttemptResultView | null;
+  mode: "reveal" | "smart" | null;
+  busy: boolean;
+  error: string | null;
+  confidence: number;
+  startedAt: number | null;
+  schemeOpen: boolean;
+};
+
+const EMPTY_FLOW: PartFlow = {
+  chosen: null,
+  mcqResult: null,
+  partAnswers: {},
+  attempt: null,
+  mode: null,
+  busy: false,
+  error: null,
+  confidence: 3,
+  startedAt: null,
+  schemeOpen: false,
+};
+
+function UnitBody({
+  unit,
   index,
   fullScreen,
   onFullScreenChange,
   onAttemptSubmitted,
   onAskTutorAbout,
 }: {
-  question: StudentQuestionView;
+  unit: ExamQuestionUnit;
   index: number;
   fullScreen: boolean;
   onFullScreenChange: (open: boolean) => void;
   onAttemptSubmitted: () => void;
   onAskTutorAbout?: (draft: string) => void;
 }) {
-  const [confidence, setConfidence] = useState(3);
-  // responseTimeMs research anchor: the first interaction with THIS question,
+  const [flows, setFlows] = useState<Record<string, PartFlow>>({});
+
+  const flowOf = (partId: string): PartFlow => flows[partId] ?? EMPTY_FLOW;
+  const patchFlow = (partId: string, patch: Partial<PartFlow>) => {
+    setFlows((prev) => ({
+      ...prev,
+      [partId]: { ...(prev[partId] ?? EMPTY_FLOW), ...patch },
+    }));
+  };
+
+  // responseTimeMs research anchor: the first interaction with THIS part,
   // not the topic load (browsing time must not pollute response time)
-  const startedAt = useRef<number | null>(null);
-  const anchor = useCallback(() => {
-    if (startedAt.current === null) startedAt.current = Date.now();
-  }, []);
-  const elapsed = () =>
-    startedAt.current === null ? 0 : Date.now() - startedAt.current;
+  const anchor = (partId: string) => {
+    setFlows((prev) => {
+      const f = prev[partId] ?? EMPTY_FLOW;
+      if (f.startedAt !== null) return prev;
+      return { ...prev, [partId]: { ...f, startedAt: Date.now() } };
+    });
+  };
+  const elapsed = (partId: string) => {
+    const started = flowOf(partId).startedAt;
+    return started === null ? 0 : Date.now() - started;
+  };
 
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [mcqResult, setMcqResult] = useState<AttemptResultView | null>(null);
-  const [partAnswers, setPartAnswers] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // the structured flow's phase: which post-submit path owns the question
-  const [attempt, setAttempt] = useState<StructuredAttemptResultView | null>(null);
-  const [mode, setMode] = useState<"reveal" | "smart" | null>(null);
-  // the demo mark-scheme modal (opened by Send, or after Smart Mark)
-  const [schemeOpen, setSchemeOpen] = useState(false);
+  const resetPart = (partId: string) => {
+    setFlows((prev) => ({ ...prev, [partId]: { ...EMPTY_FLOW } }));
+  };
 
-  const isStructured = question.type === "STRUCTURED";
-  const parts = question.parts ?? [];
-  const allAnswered = isStructured
-    ? parts.every((part) => (partAnswers[part.id] ?? "").trim().length > 0)
-    : Boolean(chosen);
-
-  function reset() {
-    setChosen(null);
-    setMcqResult(null);
-    setPartAnswers({});
-    setAttempt(null);
-    setMode(null);
-    setSchemeOpen(false);
-    setError(null);
-    setConfidence(3);
-    startedAt.current = null;
-  }
-
-  async function submitMcq() {
-    if (!chosen || busy) return;
-    setBusy(true);
-    setError(null);
+  async function submitMcq(part: StudentQuestionView) {
+    const flow = flowOf(part.id);
+    if (!flow.chosen || flow.busy) return;
+    patchFlow(part.id, { busy: true, error: null });
     try {
       const result = await api.submitAttempt({
-        questionId: question.id,
-        chosenOptionId: chosen,
-        responseTimeMs: elapsed(),
-        confidence,
+        questionId: part.id,
+        chosenOptionId: flow.chosen,
+        responseTimeMs: elapsed(part.id),
+        confidence: flow.confidence,
         selfDoubtFlag: false,
         timedCondition: false,
       });
-      setMcqResult(result);
+      patchFlow(part.id, { mcqResult: result, busy: false });
       onAttemptSubmitted();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to submit the attempt");
-    } finally {
-      setBusy(false);
+      patchFlow(part.id, {
+        busy: false,
+        error: err instanceof Error ? err.message : "Failed to submit the attempt",
+      });
     }
   }
 
-  async function submitStructured(): Promise<StructuredAttemptResultView | null> {
-    if (!allAnswered || busy) return null;
-    setBusy(true);
-    setError(null);
+  async function submitStructured(
+    part: StudentQuestionView,
+  ): Promise<StructuredAttemptResultView | null> {
+    const flow = flowOf(part.id);
+    const partViews = part.parts ?? [];
+    const allAnswered = partViews.every(
+      (p) => (flow.partAnswers[p.id] ?? "").trim().length > 0,
+    );
+    if (!allAnswered || flow.busy) return null;
+    patchFlow(part.id, { busy: true, error: null });
     try {
       const response = await api.submitStructuredAttempt({
-        questionId: question.id,
-        partAnswers: parts.map((part) => ({
-          partId: part.id,
-          answerText: partAnswers[part.id] ?? "",
+        questionId: part.id,
+        partAnswers: partViews.map((p) => ({
+          partId: p.id,
+          answerText: flow.partAnswers[p.id] ?? "",
         })),
-        responseTimeMs: elapsed(),
-        confidence,
+        responseTimeMs: elapsed(part.id),
+        confidence: flow.confidence,
         selfDoubtFlag: false,
         timedCondition: false,
       });
-      setAttempt(response);
+      patchFlow(part.id, { attempt: response, busy: false });
       onAttemptSubmitted();
       return response;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to submit the attempt");
+      patchFlow(part.id, {
+        busy: false,
+        error: err instanceof Error ? err.message : "Failed to submit the attempt",
+      });
       return null;
-    } finally {
-      setBusy(false);
     }
   }
 
+  // ONE content tree shared by the inline card and the full-screen dialog
+  // (demo parity): a whole question — every member row in SME order, the
+  // first part carrying the shared stimulus (the demo's part stacking).
+  const content = (
+    <div className="space-y-5">
+      {unit.multi ? <QuestionHelpPanel question={unit.parts[0]} /> : null}
+      {unit.parts.map((part, i) => (
+        <div
+          key={part.id}
+          className={cn(unit.multi && i > 0 && "space-y-5 border-t pt-5")}
+        >
+          <PartFlowSection
+            part={part}
+            showHelp={!unit.multi}
+            flow={flowOf(part.id)}
+            onPatch={(patch) => patchFlow(part.id, patch)}
+            onFirstTouch={() => anchor(part.id)}
+            onSubmitMcq={() => submitMcq(part)}
+            onSend={async () => {
+              const response = await submitStructured(part);
+              if (response) patchFlow(part.id, { mode: "reveal", schemeOpen: true });
+            }}
+            onSmartMark={async () => {
+              const response = await submitStructured(part);
+              if (response) patchFlow(part.id, { mode: "smart" });
+            }}
+            onRetry={() => resetPart(part.id)}
+            onSetSchemeOpen={(open) => patchFlow(part.id, { schemeOpen: open })}
+            onAskTutorAbout={onAskTutorAbout}
+          />
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <>
-      {/* ONE content tree shared by the inline card and the full-screen
-          dialog (demo parity) — both bind the same state, so drafts, choices
-          and results persist across the toggle */}
-      {(() => {
-        const content = (
-          <div className="space-y-4">
-            {question.stem ? <QuestionMarkdown>{question.stem}</QuestionMarkdown> : null}
-            <QuestionHelpPanel question={question} />
+      {content}
 
-            {isStructured ? (
-              mode === null || attempt === null ? (
-                <StructuredAnswerInputs
-                  question={question}
-                  partAnswers={partAnswers}
-                  setPartAnswers={setPartAnswers}
-                  confidence={confidence}
-                  setConfidence={setConfidence}
-                  disabled={busy}
-                  onFirstTouch={anchor}
-                  busy={busy}
-                  allAnswered={allAnswered}
-                  error={error}
-                  onSend={async () => {
-                    const response = await submitStructured();
-                    if (response) {
-                      setMode("reveal");
-                      setSchemeOpen(true);
-                    }
-                  }}
-                  onSmartMark={async () => {
-                    const response = await submitStructured();
-                    if (response) setMode("smart");
-                  }}
-                />
-              ) : mode === "smart" ? (
-                <div className="space-y-4">
-                  <SmartMarkPanel
-                    question={question}
-                    attemptId={attempt.attemptId}
-                    marksPossible={attempt.marksPossible}
-                    partAnswers={partAnswers}
-                    autoRun
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    The mark scheme stays hidden while you work with Smart Mark —
-                    you&apos;ve attempted the question, so you can still reveal it and
-                    self-mark when you&apos;re ready.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" className="gap-1.5" onClick={() => setSchemeOpen(true)}>
-                      <Eye className="size-4" aria-hidden="true" />
-                      View answer &amp; self-mark
-                    </Button>
-                    <Button variant="ghost" onClick={reset}>
-                      <RotateCcw className="size-4" aria-hidden="true" />
-                      Try again
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <Alert>
-                    <Send className="size-4 text-primary" aria-hidden="true" />
-                    <AlertTitle>Submitted — {attempt.marksPossible} marks</AlertTitle>
-                    <AlertDescription>
-                      Your written answers are stored with your attempt. Mark yourself
-                      against the scheme — tick what you earned — or leave it for your
-                      teacher.
-                    </AlertDescription>
-                  </Alert>
-                  <div className="flex flex-wrap gap-2">
-                    <Button onClick={() => setSchemeOpen(true)} className="gap-1.5">
-                      <Eye className="size-4" aria-hidden="true" />
-                      View answer &amp; self-mark
-                    </Button>
-                    <Button variant="ghost" onClick={reset}>
-                      <RotateCcw className="size-4" aria-hidden="true" />
-                      Try again
-                    </Button>
-                  </div>
-                </div>
-              )
-            ) : mcqResult ? (
-              <McqResult
-                question={question}
-                result={mcqResult}
-                chosen={chosen}
-                onAskTutorAbout={onAskTutorAbout}
-                onRetry={reset}
-              />
-            ) : (
-              <McqAnswerInputs
-                question={question}
-                chosen={chosen}
-                setChosen={setChosen}
-                confidence={confidence}
-                setConfidence={setConfidence}
-                disabled={busy}
-                onFirstTouch={anchor}
-                busy={busy}
-                allAnswered={allAnswered}
-                error={error}
-                onSubmit={submitMcq}
-              />
-            )}
-          </div>
-        );
+      {/* full-screen question (demo Dialog) — same content instance */}
+      <Dialog open={fullScreen} onOpenChange={onFullScreenChange}>
+        <DialogContent
+          aria-describedby={undefined}
+          className="exam-theme max-h-[90vh] max-w-3xl overflow-y-auto"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              Question {index + 1}
+              <Badge variant="outline" className="text-[10px]">
+                {unit.marks} marks
+              </Badge>
+              {unit.multi && unit.parts.length > 1 && (
+                <span className="text-xs font-normal text-muted-foreground">
+                  {unit.parts.length} parts
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {content}
+        </DialogContent>
+      </Dialog>
 
-        return (
-          <>
-            {content}
-
-            {/* full-screen question (demo Dialog) — same content instance */}
-            <Dialog open={fullScreen} onOpenChange={onFullScreenChange}>
-              <DialogContent
-                aria-describedby={undefined}
-                className="exam-theme max-h-[90vh] max-w-3xl overflow-y-auto"
-              >
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2 text-base">
-                    Question {index + 1}
-                    <Badge variant="outline" className="text-[10px]">
-                      {question.marks} marks
-                    </Badge>
-                  </DialogTitle>
-                </DialogHeader>
-                {content}
-              </DialogContent>
-            </Dialog>
-
-            {/* the demo full-screen mark-scheme modal, carrying the production
-                reveal-and-self-mark flow (steppers + recording endpoint).
-                Conditionally mounted: each open is a fresh, lint-clean state
-                machine (loading → open/withheld/error → recorded) keyed by
-                the attempt, so no effect ever resets state synchronously. */}
-            {isStructured && attempt && schemeOpen && (
-              <MarkSchemeDialog
-                key={attempt.attemptId}
-                question={question}
-                attempt={attempt}
-                partAnswers={partAnswers}
-                onClose={() => setSchemeOpen(false)}
-                onDone={reset}
-              />
-            )}
-          </>
-        );
-      })()}
+      {/* the demo full-screen mark-scheme modal, carrying the production
+          reveal-and-self-mark flow (steppers + recording endpoint).
+          Conditionally mounted per part: each open is a fresh, lint-clean
+          state machine (loading → open/withheld/error → recorded) keyed by
+          the attempt, so no effect ever resets state synchronously. */}
+      {unit.parts.map((part) => {
+        const flow = flowOf(part.id);
+        return part.type === "STRUCTURED" && flow.attempt && flow.schemeOpen ? (
+          <MarkSchemeDialog
+            key={flow.attempt.attemptId}
+            question={part}
+            attempt={flow.attempt}
+            partAnswers={flow.partAnswers}
+            onClose={() => patchFlow(part.id, { schemeOpen: false })}
+            onDone={() => resetPart(part.id)}
+          />
+        ) : null;
+      })}
     </>
+  );
+}
+
+// ── one member row's answer flow (MCQ or structured), fully controlled ────
+
+function PartFlowSection({
+  part,
+  showHelp,
+  flow,
+  onPatch,
+  onFirstTouch,
+  onSubmitMcq,
+  onSend,
+  onSmartMark,
+  onRetry,
+  onSetSchemeOpen,
+  onAskTutorAbout,
+}: {
+  part: StudentQuestionView;
+  /** single-row questions keep the help panel in its session-119 position
+   *  (after the stem); families render one panel above all parts */
+  showHelp: boolean;
+  flow: PartFlow;
+  onPatch: (patch: Partial<PartFlow>) => void;
+  onFirstTouch: () => void;
+  onSubmitMcq: () => void;
+  onSend: () => void;
+  onSmartMark: () => void;
+  onRetry: () => void;
+  onSetSchemeOpen: (open: boolean) => void;
+  onAskTutorAbout?: (draft: string) => void;
+}) {
+  const isStructured = part.type === "STRUCTURED";
+  const partViews = part.parts ?? [];
+  const allAnswered = isStructured
+    ? partViews.every((p) => (flow.partAnswers[p.id] ?? "").trim().length > 0)
+    : Boolean(flow.chosen);
+
+  return (
+    <div className="space-y-4">
+      {/* SME (demo figure 16): the part's problem with right-aligned mark
+          placement — part 1 of a family carries the shared stimulus */}
+      {part.stem ? <PartProblem md={part.stem} /> : null}
+      {showHelp && <QuestionHelpPanel question={part} />}
+
+      {isStructured ? (
+        flow.mode === null || flow.attempt === null ? (
+          <StructuredAnswerInputs
+            question={part}
+            partAnswers={flow.partAnswers}
+            onPartAnswer={(partId, text) =>
+              onPatch({ partAnswers: { ...flow.partAnswers, [partId]: text } })
+            }
+            confidence={flow.confidence}
+            setConfidence={(v) => onPatch({ confidence: v })}
+            disabled={flow.busy}
+            onFirstTouch={onFirstTouch}
+            busy={flow.busy}
+            allAnswered={allAnswered}
+            error={flow.error}
+            onSend={onSend}
+            onSmartMark={onSmartMark}
+          />
+        ) : flow.mode === "smart" ? (
+          <div className="space-y-4">
+            <SmartMarkPanel
+              question={part}
+              attemptId={flow.attempt.attemptId}
+              marksPossible={flow.attempt.marksPossible}
+              partAnswers={flow.partAnswers}
+              autoRun
+            />
+            <p className="text-[11px] text-muted-foreground">
+              The mark scheme stays hidden while you work with Smart Mark —
+              you&apos;ve attempted the question, so you can still reveal it and
+              self-mark when you&apos;re ready.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" className="gap-1.5" onClick={() => onSetSchemeOpen(true)}>
+                <Eye className="size-4" aria-hidden="true" />
+                View answer &amp; self-mark
+              </Button>
+              <Button variant="ghost" onClick={onRetry}>
+                <RotateCcw className="size-4" aria-hidden="true" />
+                Try again
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Alert>
+              <Send className="size-4 text-primary" aria-hidden="true" />
+              <AlertTitle>Submitted — {flow.attempt.marksPossible} marks</AlertTitle>
+              <AlertDescription>
+                Your written answers are stored with your attempt. Mark yourself
+                against the scheme — tick what you earned — or leave it for your
+                teacher.
+              </AlertDescription>
+            </Alert>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => onSetSchemeOpen(true)} className="gap-1.5">
+                <Eye className="size-4" aria-hidden="true" />
+                View answer &amp; self-mark
+              </Button>
+              <Button variant="ghost" onClick={onRetry}>
+                <RotateCcw className="size-4" aria-hidden="true" />
+                Try again
+              </Button>
+            </div>
+          </div>
+        )
+      ) : flow.mcqResult ? (
+        <McqResult
+          question={part}
+          result={flow.mcqResult}
+          chosen={flow.chosen}
+          onAskTutorAbout={onAskTutorAbout}
+          onRetry={onRetry}
+        />
+      ) : (
+        <McqAnswerInputs
+          question={part}
+          chosen={flow.chosen}
+          setChosen={(id) => onPatch({ chosen: id })}
+          confidence={flow.confidence}
+          setConfidence={(v) => onPatch({ confidence: v })}
+          disabled={flow.busy}
+          onFirstTouch={onFirstTouch}
+          busy={flow.busy}
+          allAnswered={allAnswered}
+          error={flow.error}
+          onSubmit={onSubmitMcq}
+        />
+      )}
+    </div>
   );
 }
 
@@ -1413,7 +1535,7 @@ function McqResult({
 function StructuredAnswerInputs({
   question,
   partAnswers,
-  setPartAnswers,
+  onPartAnswer,
   confidence,
   setConfidence,
   disabled,
@@ -1426,7 +1548,7 @@ function StructuredAnswerInputs({
 }: {
   question: StudentQuestionView;
   partAnswers: Record<string, string>;
-  setPartAnswers: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  onPartAnswer: (partId: string, text: string) => void;
   confidence: number;
   setConfidence: (v: number) => void;
   disabled?: boolean;
@@ -1479,7 +1601,7 @@ function StructuredAnswerInputs({
               onFocus={onFirstTouch}
               onChange={(e) => {
                 onFirstTouch();
-                setPartAnswers((prev) => ({ ...prev, [part.id]: e.target.value }));
+                onPartAnswer(part.id, e.target.value);
               }}
               placeholder="Type your answer here…"
               rows={4}
