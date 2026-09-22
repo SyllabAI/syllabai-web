@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,7 @@ import {
   Loader2,
   MessagesSquare,
   PenLine,
+  RotateCcw,
   Send,
   Sparkles,
   Timer,
@@ -33,6 +34,7 @@ import type {
   StudentQuestionView,
   StructuredAttemptResultView,
 } from "@/lib/types";
+import { buildQuestionUnits, type ExamQuestionUnit } from "@/lib/exam-families";
 import { MarksStepper } from "./MarksStepper";
 import { QuestionHelpPanel } from "./QuestionHelpPanel";
 import { QuestionMarkdown } from "./QuestionMarkdown";
@@ -63,16 +65,30 @@ export function PracticeView({
 }) {
   const [questions, setQuestions] = useState<StudentQuestionView[] | null>(null);
   const [index, setIndex] = useState(0);
-  const [chosen, setChosen] = useState<string | null>(null);
   const [confidence, setConfidence] = useState(3);
   const [selfDoubt, setSelfDoubt] = useState(false);
   const [timed, setTimed] = useState(false);
-  const [result, setResult] = useState<AttemptResultView | null>(null);
-  const [partAnswers, setPartAnswers] = useState<Record<string, string>>({});
-  const [structuredResult, setStructuredResult] = useState<StructuredAttemptResultView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedAt = useRef<number>(Date.now());
+
+  // whole questions (session-121): the flat row list reassembled into SME
+  // families — practice serves one WHOLE question at a time (stimulus + every
+  // part together, SME page order), the demo's serving unit. The grouping is
+  // the SAME module the exam-questions view uses (exam-families.ts), so the
+  // two surfaces can never disagree on what a question is.
+  const units = useMemo(() => buildQuestionUnits(questions ?? []), [questions]);
+  const unit: ExamQuestionUnit | null = units[index] ?? null;
+
+  // per-member answer + result state (a family's members are separate rows,
+  // each with its own attempt flow: MCQ rows get a choice each, structured
+  // rows carry their own sub-parts)
+  const [mcqChosen, setMcqChosen] = useState<Record<string, string>>({});
+  const [partAnswers, setPartAnswers] = useState<Record<string, string>>({});
+  const [mcqResults, setMcqResults] = useState<Record<string, AttemptResultView>>({});
+  const [structuredResults, setStructuredResults] =
+    useState<Record<string, StructuredAttemptResultView>>({});
+  const [submitted, setSubmitted] = useState(false);
 
   // session-112 topic picker: the taxonomy (same endpoint the exam-questions
   // sidebar uses) lets the learner CHOOSE a topic inside practice instead of
@@ -101,16 +117,41 @@ export function PracticeView({
   const effectiveTopicId = pickerTouched ? pickedTopicId : topicNodeId;
   const effectiveTopic = taxonomyTopics?.find((t) => t.nodeId === effectiveTopicId) ?? null;
 
-  useEffect(() => {
-    let cancelled = false;
-    setIndex(0);
-    setResult(null);
-    setStructuredResult(null);
-    setChosen(null);
+  const resetUnitState = useCallback(() => {
+    setMcqChosen({});
     setPartAnswers({});
+    setMcqResults({});
+    setStructuredResults({});
+    setSubmitted(false);
+    setSelfDoubt(false);
+    setConfidence(3);
+    setError(null);
+    startedAt.current = Date.now();
+  }, []);
+
+  // topic/root change → reset the quiz surface DURING render (React's
+  // documented adjust-state-on-prop-change pattern — no cascading effect
+  // renders): index, per-member answers/results and the question list all
+  // belong to the previous topic until the new one loads
+  const scopeKey = `${effectiveTopicId ?? "all"}|${rootId ?? ""}`;
+  const [prevScopeKey, setPrevScopeKey] = useState(scopeKey);
+  if (prevScopeKey !== scopeKey) {
+    setPrevScopeKey(scopeKey);
+    setIndex(0);
+    setMcqChosen({});
+    setPartAnswers({});
+    setMcqResults({});
+    setStructuredResults({});
+    setSubmitted(false);
+    setSelfDoubt(false);
+    setConfidence(3);
     setError(null);
     // no stale question list from the previous topic under the new header
     setQuestions(null);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
     // response timing is research data (§16): anchor it to the topic load,
     // not to app mount — a deep-linked topic hours into a session otherwise
     // records minutes of dead time in the first answer's responseTimeMs
@@ -131,66 +172,70 @@ export function PracticeView({
     };
   }, [effectiveTopicId, rootId]);
 
-  const question = questions?.[index] ?? null;
-  const isStructured = question?.type === "STRUCTURED";
-
   const nextQuestion = useCallback(() => {
-    setResult(null);
-    setStructuredResult(null);
-    setChosen(null);
+    resetUnitState();
+    setIndex((i) => (units ? (i + 1) % units.length : 0));
+  }, [units, resetUnitState]);
+
+  const retryUnit = useCallback(() => {
+    // fresh attempt at the WHOLE question: answers and results reset together
+    // so a re-submit records a complete new attempt per member
+    setMcqChosen({});
     setPartAnswers({});
-    setSelfDoubt(false);
-    setConfidence(3);
+    setMcqResults({});
+    setStructuredResults({});
+    setSubmitted(false);
     setError(null);
     startedAt.current = Date.now();
-    setIndex((i) => (questions ? (i + 1) % questions.length : 0));
-  }, [questions]);
+  }, []);
 
-  const allPartsAnswered = isStructured
-    ? (question?.parts ?? []).every((part) => (partAnswers[part.id] ?? "").trim().length > 0)
-    : Boolean(chosen);
+  // a member is answerable when its MCQ choice is made or every sub-part has
+  // text; the unit submits only when every member is answerable
+  const allAnswered = unit
+    ? unit.parts.every((member) =>
+        member.type === "STRUCTURED"
+          ? (member.parts ?? []).every((p) => (partAnswers[p.id] ?? "").trim().length > 0)
+          : Boolean(mcqChosen[member.id]),
+      )
+    : false;
 
-  async function submitStructured() {
-    if (!question || !allPartsAnswered) return;
+  // ONE submission per unit: every member in SME order, the unit-level research
+  // flags (confidence / self-doubt / timed) and the unit-anchored response
+  // time applied to each attempt — a whole question is one practice event
+  async function submitUnit() {
+    if (!unit || !allAnswered || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const response = await api.submitStructuredAttempt({
-        questionId: question.id,
-        partAnswers: (question.parts ?? []).map((part) => ({
-          partId: part.id,
-          answerText: partAnswers[part.id] ?? "",
-        })),
-        responseTimeMs: Date.now() - startedAt.current,
-        confidence,
-        selfDoubtFlag: selfDoubt,
-        timedCondition: timed,
-      });
-      setStructuredResult(response);
-      onAttemptSubmitted();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to submit the attempt");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submit() {
-    if (!question) return;
-    if (isStructured) return submitStructured();
-    if (!chosen) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await api.submitAttempt({
-        questionId: question.id,
-        chosenOptionId: chosen,
-        responseTimeMs: Date.now() - startedAt.current,
-        confidence,
-        selfDoubtFlag: selfDoubt,
-        timedCondition: timed,
-      });
-      setResult(response);
+      for (const member of unit.parts) {
+        if (member.type === "STRUCTURED") {
+          if (structuredResults[member.id]) continue; // already through (a retry of a partial unit)
+          const response = await api.submitStructuredAttempt({
+            questionId: member.id,
+            partAnswers: (member.parts ?? []).map((part) => ({
+              partId: part.id,
+              answerText: partAnswers[part.id] ?? "",
+            })),
+            responseTimeMs: Date.now() - startedAt.current,
+            confidence,
+            selfDoubtFlag: selfDoubt,
+            timedCondition: timed,
+          });
+          setStructuredResults((prev) => ({ ...prev, [member.id]: response }));
+        } else {
+          if (mcqResults[member.id]) continue;
+          const response = await api.submitAttempt({
+            questionId: member.id,
+            chosenOptionId: mcqChosen[member.id] as string,
+            responseTimeMs: Date.now() - startedAt.current,
+            confidence,
+            selfDoubtFlag: selfDoubt,
+            timedCondition: timed,
+          });
+          setMcqResults((prev) => ({ ...prev, [member.id]: response }));
+        }
+      }
+      setSubmitted(true);
       onAttemptSubmitted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit the attempt");
@@ -217,7 +262,7 @@ export function PracticeView({
     );
   }
 
-  if (!question) {
+  if (!unit) {
     if (effectiveTopicId) {
       return (
         <div className="space-y-4">
@@ -264,6 +309,18 @@ export function PracticeView({
     );
   }
 
+  // unit-level chrome: marks are the whole question's total, the time estimate
+  // sums the members, and the ref names the SME question (not the part row)
+  const expectedSeconds = unit.parts.reduce((a, p) => a + p.expectedTimeSeconds, 0);
+  const hasMcqMember = unit.parts.some((m) => m.type !== "STRUCTURED");
+  // the ask-tutor draft rides the first wrong MCQ member (the struggle signal),
+  // else the first MCQ member — structured-only questions never had one
+  const tutorMember =
+    unit.parts.find(
+      (m) => m.type !== "STRUCTURED" && mcqResults[m.id] && !mcqResults[m.id].correct,
+    ) ??
+    (hasMcqMember ? unit.parts.find((m) => m.type !== "STRUCTURED" && mcqResults[m.id]) ?? null : null);
+
   return (
     <div className="space-y-4">
       <TopicPicker
@@ -282,89 +339,157 @@ export function PracticeView({
           <div className="flex items-start justify-between gap-3">
             <div>
               <CardTitle className="text-base">
-                {question.commandWord ?? "Answer"} · {question.marks} mark
-                {question.marks > 1 ? "s" : ""}
+                {unit.parts[0].commandWord ?? "Answer"} · {unit.marks} mark
+                {unit.marks > 1 ? "s" : ""}
+                {unit.multi && unit.parts.length > 1 ? (
+                  <span className="ml-2 font-normal text-muted-foreground">
+                    {unit.parts.length} parts
+                  </span>
+                ) : null}
               </CardTitle>
               <CardDescription>
-                Question {index + 1} of {questions?.length ?? 0}
-                {question.externalRef ? ` · ${question.externalRef}` : ""}
+                Question {index + 1} of {units.length}
+                {unit.ref ? ` · ${unit.ref}` : ""}
               </CardDescription>
             </div>
             <div className="flex shrink-0 gap-1">
-              <Badge variant="outline">difficulty {question.difficulty}/5</Badge>
+              <Badge variant="outline">difficulty {unit.difficulty}/5</Badge>
               <Badge variant="secondary">
                 <Timer className="mr-1 size-3" aria-hidden="true" />
-                ~{question.expectedTimeSeconds}s
+                ~{expectedSeconds}s
               </Badge>
             </div>
           </div>
-          <Progress value={((index + 1) / (questions?.length ?? 1)) * 100} aria-label="Quiz progress" />
+          <Progress value={((index + 1) / Math.max(units.length, 1)) * 100} aria-label="Quiz progress" />
         </CardHeader>
         <CardContent className="space-y-5">
-          {question.stem ? <QuestionMarkdown>{question.stem}</QuestionMarkdown> : null}
+          {/* one help panel per whole question (families: above all members,
+              exactly like the exam-questions view) */}
+          {unit.multi ? <QuestionHelpPanel question={unit.parts[0]} /> : null}
 
-          <QuestionHelpPanel question={question} />
+          {/* the whole question: every member row in SME order, part 1
+              carrying the shared stimulus — a part never serves alone */}
+          {unit.parts.map((member, i) => (
+            <div
+              key={member.id}
+              className={unit.multi && i > 0 ? "space-y-5 border-t pt-5" : "space-y-5"}
+            >
+              {member.stem ? <QuestionMarkdown>{member.stem}</QuestionMarkdown> : null}
+              {!unit.multi ? <QuestionHelpPanel question={member} /> : null}
 
-          {structuredResult ? (
-            <StructuredResultPanel
-              question={question}
-              result={structuredResult}
-              partAnswers={partAnswers}
-              onNext={nextQuestion}
-            />
-          ) : result ? (
-            <McqResultPanel
-              question={question}
-              result={result}
-              chosen={chosen}
-              topicTitle={effectiveTopic?.title ?? topicTitle}
-              onRetry={() => {
-                setResult(null);
-                setChosen(null);
-                startedAt.current = Date.now();
-              }}
-              onNext={nextQuestion}
-              onAskTutorAbout={onAskTutorAbout}
-            />
-          ) : (
-            <>
-              {isStructured ? (
-                <div className="space-y-4">
-                  {(question.parts ?? []).map((part) => (
-                    <div key={part.id} className="space-y-1.5">
-                      <div className="text-sm font-semibold">
-                        <span className="mr-1.5 inline-flex size-6 items-center justify-center rounded border bg-muted font-mono text-xs">
-                          {part.label}
-                        </span>
-                        {part.commandWord ? `${part.commandWord} — ` : ""}
-                        <span className="ml-1 font-normal text-muted-foreground">
-                          ({part.marks} mark{part.marks > 1 ? "s" : ""})
-                        </span>
+              {member.type === "STRUCTURED" ? (
+                structuredResults[member.id] ? (
+                  <StructuredResultPanel
+                    question={member}
+                    result={structuredResults[member.id]}
+                    partAnswers={partAnswers}
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    {(member.parts ?? []).map((part) => (
+                      <div key={part.id} className="space-y-1.5">
+                        <div className="text-sm font-semibold">
+                          <span className="mr-1.5 inline-flex size-6 items-center justify-center rounded border bg-muted font-mono text-xs">
+                            {part.label}
+                          </span>
+                          {part.commandWord ? `${part.commandWord} — ` : ""}
+                          <span className="ml-1 font-normal text-muted-foreground">
+                            ({part.marks} mark{part.marks > 1 ? "s" : ""})
+                          </span>
+                        </div>
+                        <QuestionMarkdown>{part.prompt}</QuestionMarkdown>
+                        <Textarea
+                          id={part.id}
+                          value={partAnswers[part.id] ?? ""}
+                          onChange={(e) =>
+                            setPartAnswers((prev) => ({ ...prev, [part.id]: e.target.value }))
+                          }
+                          placeholder="Write your answer…"
+                          rows={3}
+                          disabled={busy}
+                        />
                       </div>
-                      <QuestionMarkdown>{part.prompt}</QuestionMarkdown>
-                      <Textarea
-                        id={part.id}
-                        value={partAnswers[part.id] ?? ""}
-                        onChange={(e) =>
-                          setPartAnswers((prev) => ({ ...prev, [part.id]: e.target.value }))
-                        }
-                        placeholder="Write your answer…"
-                        rows={3}
-                        disabled={busy}
-                      />
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )
+              ) : mcqResults[member.id] ? (
+                <McqResultPanel
+                  question={member}
+                  result={mcqResults[member.id]}
+                  chosen={mcqChosen[member.id] ?? null}
+                  topicTitle={effectiveTopic?.title ?? topicTitle}
+                />
               ) : (
                 <McqChoiceGrid
-                  options={question.options}
-                  chosen={chosen}
-                  onChoose={setChosen}
+                  options={member.options}
+                  chosen={mcqChosen[member.id] ?? null}
+                  onChoose={(id) =>
+                    setMcqChosen((prev) => ({ ...prev, [member.id]: id }))
+                  }
                   disabled={busy}
                   revealed={false}
                 />
               )}
+            </div>
+          ))}
 
+          {submitted ? (
+            /* unit-level controls: ONE next / retry / ask-tutor for the whole
+               question, after every member's feedback */
+            <div className="space-y-4">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={nextQuestion}>Next question</Button>
+                <Button variant="outline" onClick={retryUnit} className="gap-1.5">
+                  <RotateCcw className="size-4" aria-hidden="true" />
+                  Retry this question
+                </Button>
+                {onAskTutorAbout && tutorMember && mcqResults[tutorMember.id] && (
+                  <Button
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => {
+                      const result = mcqResults[tutorMember.id];
+                      const stem = tutorMember.stem.slice(0, 300) ?? "a question";
+                      const chosenLabel =
+                        tutorMember.options.find((o) => o.id === mcqChosen[tutorMember.id])
+                          ?.label ?? "";
+                      const correctLabel = result.correctOptionLabel ?? "";
+                      // the tutor only sees this text — without the option texts it has
+                      // to guess what A/B/C/D were (session-114 fix)
+                      const optionsFragment =
+                        tutorMember.options.length > 0
+                          ? ` The options were: ${tutorMember.options
+                              .map((o) => `${o.label}) ${o.text}`)
+                              .join("  ")}.`
+                          : "";
+                      onAskTutorAbout(
+                        result.correct
+                          ? `I answered this question correctly${
+                              effectiveTopic?.title ?? topicTitle
+                                ? ` on ${effectiveTopic?.title ?? topicTitle}`
+                                : ""
+                            }: "${stem}" — I chose ${chosenLabel}, which was the right answer.${optionsFragment} Can you explain the chemistry behind it and what related ideas I should review to make sure I really understand it?`
+                          : `I got this question wrong${
+                              effectiveTopic?.title ?? topicTitle
+                                ? ` on ${effectiveTopic?.title ?? topicTitle}`
+                                : ""
+                            } and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${correctLabel}.${optionsFragment} Can you explain the chemistry behind the correct answer?`,
+                      );
+                    }}
+                  >
+                    <MessagesSquare className="size-4" aria-hidden="true" />
+                    Ask tutor about this
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
               <div className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -418,13 +543,13 @@ export function PracticeView({
                 </Alert>
               )}
 
-              <Button onClick={submit} disabled={!allPartsAnswered || busy}>
+              <Button onClick={submitUnit} disabled={!allAnswered || busy}>
                 {busy ? (
                   <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                 ) : (
                   <Send className="size-4" aria-hidden="true" />
                 )}
-                {isStructured ? "Submit for marking" : "Submit answer"}
+                {unit.type === "structured" ? "Submit for marking" : "Submit answer"}
               </Button>
             </>
           )}
@@ -517,8 +642,10 @@ function McqResultPanel({
   result: AttemptResultView;
   chosen: string | null;
   topicTitle?: string | null;
-  onRetry: () => void;
-  onNext: () => void;
+  /** unit-level controls are optional: whole-question practice renders ONE
+   *  next/retry row after every member's feedback, not one per part */
+  onRetry?: () => void;
+  onNext?: () => void;
   onAskTutorAbout?: (draft: string) => void;
 }) {
   const [scheme, setScheme] = useState<MarkSchemeRevealView | null>(null);
@@ -542,15 +669,13 @@ function McqResultPanel({
     };
   }, [question.id]);
 
-  const correctOption = question.options.find((o) => o.label === result.correctOptionLabel);
-
   return (
     <div className="space-y-4">
       <Alert variant={result.correct ? "default" : "destructive"}>
         {result.correct ? (
           <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
         ) : (
-          <XCircle className="size-4" aria-hidden="true" />
+          <XCircle className="size-4 text-destructive" aria-hidden="true" />
         )}
         <AlertTitle>
           {result.correct
@@ -596,44 +721,48 @@ function McqResultPanel({
         </Alert>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={onNext}>Next question</Button>
-        <Button variant="outline" onClick={onRetry}>
-          Retry this question
-        </Button>
-        {onAskTutorAbout && (
-          <Button
-            variant="outline"
-            className="gap-1.5"
-            onClick={() => {
-              const stem = question?.stem.slice(0, 300) ?? "a question";
-              const chosenLabel =
-                question?.options.find((o) => o.id === chosen)?.label ?? "";
-              const correctLabel = result.correctOptionLabel ?? "";
-              // the tutor only sees this text — without the option texts it has
-              // to guess what A/B/C/D were (session-114 fix)
-              const optionsFragment =
-                question && question.options.length > 0
-                  ? ` The options were: ${question.options
-                      .map((o) => `${o.label}) ${o.text}`)
-                      .join("  ")}.`
-                  : "";
-              onAskTutorAbout(
-                result.correct
-                  ? `I answered this question correctly${
-                      topicTitle ? ` on ${topicTitle}` : ""
-                    }: "${stem}" — I chose ${chosenLabel}, which was the right answer.${optionsFragment} Can you explain the chemistry behind it and what related ideas I should review to make sure I really understand it?`
-                  : `I got this question wrong${
-                      topicTitle ? ` on ${topicTitle}` : ""
-                    } and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${correctLabel}.${optionsFragment} Can you explain the chemistry behind the correct answer?`,
-              );
-            }}
-          >
-            <MessagesSquare className="size-4" aria-hidden="true" />
-            Ask tutor about this
-          </Button>
-        )}
-      </div>
+      {(onNext || onRetry || onAskTutorAbout) && (
+        <div className="flex flex-wrap gap-2">
+          {onNext && <Button onClick={onNext}>Next question</Button>}
+          {onRetry && (
+            <Button variant="outline" onClick={onRetry}>
+              Retry this question
+            </Button>
+          )}
+          {onAskTutorAbout && (
+            <Button
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => {
+                const stem = question?.stem.slice(0, 300) ?? "a question";
+                const chosenLabel =
+                  question?.options.find((o) => o.id === chosen)?.label ?? "";
+                const correctLabel = result.correctOptionLabel ?? "";
+                // the tutor only sees this text — without the option texts it has
+                // to guess what A/B/C/D were (session-114 fix)
+                const optionsFragment =
+                  question && question.options.length > 0
+                    ? ` The options were: ${question.options
+                        .map((o) => `${o.label}) ${o.text}`)
+                        .join("  ")}.`
+                    : "";
+                onAskTutorAbout(
+                  result.correct
+                    ? `I answered this question correctly${
+                        topicTitle ? ` on ${topicTitle}` : ""
+                      }: "${stem}" — I chose ${chosenLabel}, which was the right answer.${optionsFragment} Can you explain the chemistry behind it and what related ideas I should review to make sure I really understand it?`
+                    : `I got this question wrong${
+                        topicTitle ? ` on ${topicTitle}` : ""
+                      } and I don't understand why. The question was: "${stem}" — I chose ${chosenLabel} but the correct answer was ${correctLabel}.${optionsFragment} Can you explain the chemistry behind the correct answer?`,
+                );
+              }}
+            >
+              <MessagesSquare className="size-4" aria-hidden="true" />
+              Ask tutor about this
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -668,7 +797,8 @@ function StructuredResultPanel({
   question: StudentQuestionView;
   result: StructuredAttemptResultView;
   partAnswers: Record<string, string>;
-  onNext: () => void;
+  /** optional: whole-question practice renders ONE next row at the unit level */
+  onNext?: () => void;
 }) {
   const [scheme, setScheme] = useState<MarkSchemeRevealView | null>(null);
   const [schemeState, setSchemeState] = useState<"idle" | "loading" | "open" | "withheld" | "error">(
@@ -748,9 +878,11 @@ function StructuredResultPanel({
             </li>
           ))}
         </ul>
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={onNext}>Next question</Button>
-        </div>
+        {onNext && (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={onNext}>Next question</Button>
+          </div>
+        )}
       </div>
     );
   }
@@ -888,9 +1020,11 @@ function StructuredResultPanel({
               )}
               Record my self-marks{allSelfMarked ? ` (${selfTotal}/${result.marksPossible})` : ""}
             </Button>
-            <Button variant="ghost" onClick={onNext}>
-              Skip — leave it for the teacher
-            </Button>
+            {onNext && (
+              <Button variant="ghost" onClick={onNext}>
+                Skip — leave it for the teacher
+              </Button>
+            )}
           </div>
           <p className="text-[11px] text-muted-foreground">
             Self-marking updates your mastery estimate immediately. It is recorded
@@ -949,3 +1083,5 @@ function TopicPicker({
     </div>
   );
 }
+
+
