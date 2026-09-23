@@ -64,9 +64,17 @@ spin-down with keep-alive traffic; services kept artificially awake risk
 account suspension. The per-session login ping above is tied to a real page
 view and is the maximum acceptable on the client side. The ONLY sanctioned
 scheduled wake is the existing once-daily `vercel.json` cron
-(`/api/cron/keep-alive`, 02:50 UTC) that covers the 03:00 UTC decay-job
-window — one bounded wake per day (~15–30 instance-hours/month); never
-extend it to a more frequent schedule. Availability monitoring lives in the
+(`/api/cron/keep-alive`, `"0 3 * * *"` since session-122) that wakes the
+instance inside the 03:00 UTC decay-job window — one bounded wake per day
+(~15–30 instance-hours/month); never extend it to a more frequent schedule.
+(Why the schedule moved from `"50 2 * * *"`: Vercel Hobby cron jobs trigger
+once per day WITHIN the scheduled hour — the minute field is not honored —
+so a 02:00-hour fire wakes the instance for only Render's ~15 min idle
+budget and it sleeps again before the 03:00 checker tick; measured Sept
+21–23, all three decay windows then completed ~2 h late via the
+queue-delayed pilot-monitor probe instead. Waking inside the 03:00 hour
+lands after the window anchor and the first 15-min checker tick completes
+the window, typically 03:03–03:20.) Availability monitoring lives in the
 public `SyllabAI/syllabai-ops` repo (6-hourly probe, migrated there
 2026-09-16 when this repo's Actions quota died) — it reports on real
 availability and its frequency must stay at 6 h, not creep up into
