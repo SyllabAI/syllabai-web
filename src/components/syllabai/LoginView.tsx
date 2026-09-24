@@ -47,7 +47,7 @@ export function LoginView({ onAuthenticated }: LoginViewProps) {
         // dropped first connection — say so honestly and invite a retry
         // instead of implying the backend is down for good.
         setError(
-          "Reaching the SyllabAI server… it may be waking up (free tier sleeps when idle). Please wait a few seconds and try again.",
+          "Reaching the SyllabAI server… it may be waking up (free tier sleeps when idle; a cold start takes about 3 minutes). Please wait a moment and try again.",
         );
       } else {
         setError("Something went wrong — please try again.");

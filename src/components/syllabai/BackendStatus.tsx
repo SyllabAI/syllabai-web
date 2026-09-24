@@ -7,8 +7,9 @@
  * Spring boot. The API client emits `syllabai:backend-waking` when a request
  * exceeds 3 s with no recent success, and `syllabai:backend-ok` on the first
  * response. This component listens and renders a slim, dismiss-free banner —
- * the point is to tell users the truth ("waking up, ~30–60 s") instead of a
- * silent spinner, NOT to hide the free-tier physics.
+ * the point is to tell users the truth ("waking up, ~2–3 min measured on the
+ * free tier's 0.1 CPU — session-123, 2026-09-24: 177 s controlled probe")
+ * instead of a silent spinner, NOT to hide the free-tier physics.
  */
 import { useEffect, useState } from "react";
 import { CloudCog, Loader2 } from "lucide-react";
@@ -40,7 +41,8 @@ export function BackendStatus() {
         <CloudCog className="size-3.5 shrink-0" aria-hidden="true" />
         <span>
           The SyllabAI server is waking up (free tier — it sleeps when idle).
-          This can take up to a minute; your request will complete automatically.
+          This can take a few minutes (about 3 measured); your request will complete
+          automatically.
         </span>
       </div>
     </div>
