@@ -13,6 +13,7 @@ import type {
   LearnerStateView,
   NodeView,
 } from "@/lib/types";
+import { scopeChips } from "@/lib/applicability";
 import type { KGXEdge, KGXGraph, KGXHost, KGXNode, KGXPanelSection } from "./types";
 
 function fmtDate(iso: string | null | undefined): string {
@@ -401,10 +402,25 @@ export function conceptGraphHost(
     ],
     defaultLensId: "validation",
     panelSections: (n) => {
+      const sections: KGXPanelSection[] = [];
+      // official assessment scope (T-C25): the applicability core serves on
+      // the spec-point NodeView (T-C24/V39) — chip values ARE the canonical
+      // object (demo kgApplicabilityChips parity); honestly absent when the
+      // point is unscoped
+      const app = specById.get(n.id)?.applicability;
+      if (app) {
+        const chips = scopeChips(app);
+        if (chips.length) {
+          sections.push({
+            title: "Assessment scope",
+            chips,
+            note: app.rule ?? undefined,
+          });
+        }
+      }
       const related = edgesView.filter((e) => e.source.nodeId === n.id || e.target.nodeId === n.id);
-      if (!related.length) return [];
-      return [
-        {
+      if (related.length) {
+        sections.push({
           title: `Relationships (${related.length})`,
           rows: related
             .slice(0, 12)
@@ -412,8 +428,9 @@ export function conceptGraphHost(
               label: `${e.relation} · ${e.validationStatus}`,
               value: `${e.source.code || e.source.title} → ${e.target.code || e.target.title}`,
             })),
-        },
-      ];
+        });
+      }
+      return sections;
     },
     nodeActions: opts?.onOpenSpec
       ? (n) => {

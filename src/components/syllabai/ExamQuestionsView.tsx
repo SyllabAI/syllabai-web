@@ -36,7 +36,7 @@
  *   the learner model updates identically — the integration is the reuse.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -54,8 +54,13 @@ import {
   ChevronUp,
   Eye,
   FileQuestion,
+  Filter,
+  GraduationCap,
   Home,
+  Layers,
+  ListChecks,
   Loader2,
+  Lock,
   Maximize2,
   MessagesSquare,
   PenLine,
@@ -66,7 +71,20 @@ import {
   X,
   XCircle,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api, ApiError } from "@/lib/api";
+import {
+  collectScopeFacets,
+  SCOPE_ALL,
+  unitMatchesScope,
+  type ScopeOption,
+} from "@/lib/applicability";
 import {
   buildQuestionUnits,
   savedKeysOfUnit,
@@ -588,11 +606,35 @@ function TopicPane({
   const [difficulty, setDifficulty] = useState<DifficultyFilter>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | "mcq" | "structured">("all");
 
+  // official paper/unit/tier scope (T-C25): the applicability core serves
+  // inline on each spec-point mapping (T-C24/V39), so the loaded topic's
+  // questions scope with zero extra requests. Picks belong to the topic they
+  // were made on — switching topics resets them (render-phase derivation,
+  // the house staleness pattern; no effect resets).
+  const [scope, setScope] = useState<{
+    topicId: string;
+    paper: string;
+    unit: string;
+    tier: string;
+  } | null>(null);
+  const activeScope =
+    scope && scope.topicId === topic.nodeId
+      ? scope
+      : { topicId: topic.nodeId, paper: SCOPE_ALL, unit: SCOPE_ALL, tier: SCOPE_ALL };
+  const setScopeDim = (dim: "paper" | "unit" | "tier", value: string) =>
+    setScope({ ...activeScope, topicId: topic.nodeId, [dim]: value });
+
   // whole questions (families), SME page order — the demo's serving unit
   const units = useMemo(
     () => buildQuestionUnits(questions ?? []),
     [questions],
   );
+
+  const scopeFacets = useMemo(() => collectScopeFacets(units), [units]);
+  const scopeActive =
+    activeScope.paper !== SCOPE_ALL ||
+    activeScope.unit !== SCOPE_ALL ||
+    activeScope.tier !== SCOPE_ALL;
 
   const counts = useMemo(() => {
     const c: Record<DifficultyFilter, number> = {
@@ -607,14 +649,78 @@ function TopicPane({
 
   const visible = useMemo(() => {
     let list = units;
+    if (scopeActive) {
+      list = list.filter((u) =>
+        unitMatchesScope(u, activeScope.paper, activeScope.unit, activeScope.tier),
+      );
+    }
     if (difficulty !== "all") list = list.filter((u) => bandOf(u.difficulty) === difficulty);
     if (typeFilter === "mcq") list = list.filter((u) => u.type === "mcq");
     if (typeFilter === "structured") list = list.filter((u) => u.type === "structured");
     if (savedOnly) list = list.filter((u) => unitIsSaved(u, savedIds));
     return list;
-  }, [units, difficulty, typeFilter, savedOnly, savedIds]);
+  }, [
+    units,
+    scopeActive,
+    activeScope.paper,
+    activeScope.unit,
+    activeScope.tier,
+    difficulty,
+    typeFilter,
+    savedOnly,
+    savedIds,
+  ]);
 
   const isAttempted = (unit: ExamQuestionUnit) => unitIsAttempted(unit, attemptedQuestionIds);
+
+  // demo renderSelect/renderLocked ported verbatim (specification explorer) —
+  // only the locked fact's noun changes: a topic's unit of display is the
+  // whole question, not the printed statement
+  const renderScopeSelect = (
+    dim: "paper" | "unit" | "tier",
+    icon: ReactNode,
+    labelText: string,
+    value: string,
+    options: ScopeOption[],
+  ) => (
+    <div className="flex flex-col gap-1.5">
+      <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {icon}
+        {labelText}
+      </Label>
+      <Select value={value} onValueChange={(v) => setScopeDim(dim, v)}>
+        <SelectTrigger className="h-9 w-full min-w-36" aria-label={labelText}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={SCOPE_ALL}>All</SelectItem>
+          {options.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const renderScopeLocked = (
+    key: string,
+    icon: ReactNode,
+    labelText: string,
+    value: string,
+  ) => (
+    <div key={key} className="flex flex-col gap-1.5">
+      <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {icon}
+        {labelText}
+      </Label>
+      <div className="flex h-9 items-center gap-2 rounded-md border border-dashed px-3 text-sm text-muted-foreground">
+        <Lock className="size-3.5 shrink-0" aria-hidden />
+        <span>Every question · {value}</span>
+      </div>
+    </div>
+  );
 
   const scrollTo = (key: string) => {
     document.getElementById(`q-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -701,6 +807,90 @@ function TopicPane({
         </Button>
       </div>
 
+      {/* official scope controls (T-C25, demo honest-controls parity): the
+          facets are the canonical applicability core serves inline — nothing
+          is derived; a dimension appears as a select only when the topic's
+          questions actually carry >=2 of its values, as a locked fact at
+          exactly one, and never when unscoped (footnote instead) */}
+      {questions &&
+        (scopeFacets.paperOptions.length +
+          scopeFacets.unitOptions.length +
+          scopeFacets.tierOptions.length >
+        0 ? (
+          <div className="rounded-lg border bg-card px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-1.5 text-[13px] font-semibold">
+                <Filter className="size-3.5 text-muted-foreground" aria-hidden />
+                Scope by the official assessment structure
+              </p>
+              {scopeActive && (
+                <Badge variant="outline" className="font-mono text-[10px]">
+                  {visible.length} / {units.length} shown
+                </Badge>
+              )}
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              {scopeFacets.paperOptions.length >= 2 &&
+                renderScopeSelect(
+                  "paper",
+                  <ListChecks className="size-3.5" aria-hidden />,
+                  "Paper",
+                  activeScope.paper,
+                  scopeFacets.paperOptions,
+                )}
+              {scopeFacets.paperOptions.length === 1 &&
+                renderScopeLocked(
+                  "lk-paper",
+                  <ListChecks className="size-3.5" aria-hidden />,
+                  "Paper",
+                  scopeFacets.paperOptions[0].label,
+                )}
+              {scopeFacets.unitOptions.length >= 2 &&
+                renderScopeSelect(
+                  "unit",
+                  <Layers className="size-3.5" aria-hidden />,
+                  "Unit",
+                  activeScope.unit,
+                  scopeFacets.unitOptions,
+                )}
+              {scopeFacets.unitOptions.length === 1 &&
+                renderScopeLocked(
+                  "lk-unit",
+                  <Layers className="size-3.5" aria-hidden />,
+                  "Unit",
+                  scopeFacets.unitOptions[0].label,
+                )}
+              {scopeFacets.tierOptions.length >= 2 &&
+                renderScopeSelect(
+                  "tier",
+                  <GraduationCap className="size-3.5" aria-hidden />,
+                  "Tier",
+                  activeScope.tier,
+                  scopeFacets.tierOptions,
+                )}
+              {scopeFacets.tierOptions.length === 1 &&
+                renderScopeLocked(
+                  "lk-tier",
+                  <GraduationCap className="size-3.5" aria-hidden />,
+                  "Tier",
+                  scopeFacets.tierOptions[0].label,
+                )}
+            </div>
+            <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground">
+              Assessment homes come from the parsed Pearson specification and
+              ride on each question's spec-point mapping — official data, never
+              inferred. Filters appear only where the qualification has that
+              structure: a linear IGCSE has no unit scope, and only Maths A
+              splits Foundation / Higher tiers.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Official paper/unit scope has not reached this topic's questions yet
+            — every question below is shown unscoped.
+          </p>
+        ))}
+
       {/* question number grid (demo jump-to-question) — whole questions */}
       {visible.length > 0 && (
         <div className="flex flex-wrap gap-1.5" aria-label="Jump to question">
@@ -749,7 +939,9 @@ function TopicPane({
             No {difficulty !== "all" ? difficulty : ""}
             {savedOnly ? " saved" : ""}
             {typeFilter !== "all" ? ` ${typeFilter === "mcq" ? "multiple-choice" : "structured"}` : ""}
-            {" "}questions in this topic.
+            {" "}questions
+            {scopeActive ? " under the selected paper/unit/tier scope" : ""} in
+            this topic.
           </p>
         )}
 

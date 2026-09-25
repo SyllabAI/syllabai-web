@@ -23,7 +23,33 @@ export interface NodeView {
   description: string | null;
   validationStatus: string;
   provenance: string | null;
+  /** official paper/unit/tier scope of a spec point (T-C24/V39) — verbatim
+   *  from the seeded store, null on every non-spec (or unscoped) node */
+  applicability?: SpecPointApplicability | null;
   children: NodeView[];
+}
+
+/**
+ * The canonical applicability object (T-KG-16 shape, served verbatim by core
+ * since T-C24/V39). Deliberately loose: the store's business, not ours — the
+ * known 4CH1 keys are mirrored, anything else passes through uninterpreted.
+ */
+export interface SpecPointApplicability {
+  papers?: string[];
+  unit_scope?: string | null;
+  tier?: string | null;
+  coursework?: boolean | null;
+  double_award_shared?: boolean | null;
+  rule?: string;
+}
+
+/** One question→spec-point mapping with the point's official scope (T-C24):
+ *  PRIMARY first then SECONDARY, code-ordered — the order specPointCodes
+ *  derives from, so the two views can never disagree. */
+export interface SpecPointRef {
+  code: string;
+  role: string;
+  applicability: SpecPointApplicability | null;
 }
 
 export interface PrerequisiteView {
@@ -64,6 +90,10 @@ export interface StudentQuestionView {
   /** curriculum codes (PRIMARY first) — the question-help panel joins these
    *  to revision notes client-side (ADR-026); empty for unmapped questions */
   specPointCodes?: string[];
+  /** the richer sibling of specPointCodes (T-C24): the same mappings with
+   *  mapping role + the spec point's official applicability verbatim (null
+   *  when unscoped) — paper/unit/tier scoping needs no second round trip */
+  specPoints?: SpecPointRef[];
 }
 
 // ── SME-style mark-scheme reveal (policy-gated learner surface) ──

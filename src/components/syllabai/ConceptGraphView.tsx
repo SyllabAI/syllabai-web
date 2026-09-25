@@ -45,6 +45,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { scopeChips } from "@/lib/applicability";
 import { KGExplorer } from "@/components/syllabai/kg-explorer/KGExplorer";
 import { conceptGraphHost } from "@/components/syllabai/kg-explorer/adapters";
 import type {
@@ -410,6 +411,21 @@ export function ConceptGraphView() {
                       <span className="font-mono text-xs text-primary">
                         {selectedSp.code.replace("4CH1-", "")}
                       </span>
+                      {/* official assessment scope (T-C25) — the canonical
+                          applicability core serves on the NodeView (T-C24),
+                          rendered as chips exactly like the demo explorer;
+                          absent when the point is unscoped */}
+                      {selectedSp.applicability &&
+                        scopeChips(selectedSp.applicability).map((chip) => (
+                          <Badge
+                            key={chip}
+                            variant="outline"
+                            className="text-[10px]"
+                            title={selectedSp.applicability?.rule ?? undefined}
+                          >
+                            {chip}
+                          </Badge>
+                        ))}
                     </div>
                     <p className="mt-2 text-sm">{selectedSp.description ?? selectedSp.title}</p>
                     <p className="mt-1 text-[10px] text-muted-foreground">
