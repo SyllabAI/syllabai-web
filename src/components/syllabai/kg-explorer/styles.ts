@@ -36,6 +36,7 @@ export const KGX_CSS = `
 @keyframes kgxPulse{0%,100%{opacity:.08;transform:scale(1)}50%{opacity:.45;transform:scale(1.12)}}
 .kgx .misconMark{fill:#fbfaf6;stroke:#b85a52;stroke-width:1.6;vector-effect:non-scaling-stroke}
 .kgx .attemptsBadge{font-size:8px;fill:#fff;font-weight:700;pointer-events:none}
+.kgx .expandBadge{font-size:8px;fill:#fff;font-weight:700;pointer-events:none}
 .kgx .pathBadge{font-size:7px;font-weight:700;fill:#fff;stroke:#6656a9;stroke-width:1.5;paint-order:stroke;pointer-events:none}
 .kgx-hud{position:absolute;left:16px;top:14px;z-index:10;pointer-events:none;max-width:280px}
 .kgx-hud .t{font-size:13px;font-weight:700}

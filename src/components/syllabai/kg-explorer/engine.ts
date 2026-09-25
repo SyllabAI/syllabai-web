@@ -222,6 +222,16 @@ export class KGExplorerEngine {
   private pinned = new Set<string>();
   private multiSelect = new Set<string>();
   private compare: { a: string; b: string } | null = null;
+  // v75 reveal gating: deeper levels stay hidden until their parent is
+  // double-clicked (the reference's isSpecRevealed / state.expanded)
+  private expanded = new Set<string>();
+  private structuralKids = new Map<string, KGXNode[]>();
+  // v75 `appearing`: nodes mid-reveal glide parent→home outside the physics
+  private appearing = new Map<
+    string,
+    { fx: number; fy: number; tx: number; ty: number; t0: number; dur: number }
+  >();
+  private appearRaf = 0;
   private trace: { active: boolean; stage: "from" | "to"; from: string | null; nodes: string[] } = {
     active: false,
     stage: "from",
@@ -255,6 +265,9 @@ export class KGExplorerEngine {
   destroy(): void {
     this.destroyed = true;
     cancelAnimationFrame(this.raf);
+    cancelAnimationFrame(this.appearRaf);
+    this.appearRaf = 0;
+    this.appearing.clear();
     this.resizeObserver?.disconnect();
     for (const [t, ev, fn] of this.listeners) t.removeEventListener(ev, fn);
     this.listeners = [];
@@ -440,6 +453,9 @@ export class KGExplorerEngine {
 
     const hierEdges: EFE[] = [];
     for (const n of this.nodes) {
+      // misconceptions are state overlays, never curriculum structure —
+      // they link to their parent as a state edge below
+      if (n.type === "MISCONCEPTION") continue;
       if (n.parentId && this.nodeById.has(n.parentId)) {
         hierEdges.push({
           from: n.id,
@@ -452,8 +468,7 @@ export class KGExplorerEngine {
         });
       }
     }
-    // MISCONCEPTION nodes hang off their parent as state edges when the host
-    // supplied them without parentId (the class/concept adapters do)
+    // host-supplied semantic edges (prerequisites, state links, provenance)
     const semantic: EFE[] = [];
     for (const e of graph.edges) {
       const from = e.from;
@@ -461,10 +476,14 @@ export class KGExplorerEngine {
       if (!this.nodeById.has(from) || !this.nodeById.has(to)) continue;
       semantic.push({ ...e, id: `${e.kind}|${from}|${to}`, rtFrom: from, rtTo: to });
     }
-    // misconception → parent state edges for misconceptions lacking hierarchy
+    // misconception → parent state edges: parentId collars the node in the
+    // layout; the link itself is always a state edge (never hierarchy), and
+    // the host's own state edge wins when it supplied a richer label
     for (const n of this.nodes) {
       if (n.type === "MISCONCEPTION" && n.parentId && this.nodeById.has(n.parentId)) {
-        const has = hierEdges.some((h) => h.from === n.id && h.to === n.parentId);
+        const has = semantic.some(
+          (h) => (h.rtFrom === n.id && h.rtTo === n.parentId) || (h.rtFrom === n.parentId && h.rtTo === n.id),
+        );
         if (!has) {
           semantic.push({
             from: n.id,
@@ -480,6 +499,17 @@ export class KGExplorerEngine {
     }
     this.edges = [...hierEdges, ...semantic];
     this.relFilters = new Set(this.edges.map((e) => e.kind));
+
+    // structural children (curriculum tree, misconceptions excluded — they
+    // follow their parent as state overlays) drive expand/collapse + badges
+    this.structuralKids = new Map();
+    for (const n of this.nodes) {
+      if (n.type === "MISCONCEPTION" || !n.parentId) continue;
+      const arr = this.structuralKids.get(n.parentId);
+      if (arr) arr.push(n);
+      else this.structuralKids.set(n.parentId, [n]);
+    }
+    this.expanded = new Set();
 
     // reset interaction state
     this.selected = null;
@@ -510,6 +540,12 @@ export class KGExplorerEngine {
     this.bootSim();
     this.refresh();
     this.updateMinimap();
+    const collapsed = this.nodes.filter((n) => this.collapsedChildCount(n) > 0).length;
+    this.status(
+      collapsed > 0
+        ? "Double-click a node with a +badge to reveal its items · search jumps anywhere"
+        : "Explore · search or select a node",
+    );
   }
 
   private rebuildNodeDom(): void {
@@ -529,6 +565,7 @@ export class KGExplorerEngine {
     const types = new Set<KGXNodeType>(lens.types ?? this.allTypes());
     return this.nodes.filter((n) => {
       if (!types.has(n.type)) return false;
+      if (!this.isRevealed(n)) return false;
       if (this.connectedOnly && this.connectedSet) {
         return this.connectedSet.has(n.id) || this.pinned.has(n.id);
       }
@@ -718,8 +755,21 @@ export class KGExplorerEngine {
 
   // ── simulation (v75 anchored relaxation) ────────────────────────────────
 
+  /** initial mount — v75 bootSimulation() */
   private bootSim(): void {
     this.alpha = 0.9;
+    if (!this.simRunning) {
+      this.simRunning = true;
+      this.raf = requestAnimationFrame(() => this.simTick());
+    }
+  }
+
+  /** v75 reheat(a=.28): nudge the physics without resetting it — interactions
+   * use small values (0.12–0.18), drags 0.85–0.95, reveals NONE (the appear
+   * animation is the motion; reheating after a reveal is what blows flowers
+   * apart — measured in session-131) */
+  private reheat(a = 0.28): void {
+    this.alpha = Math.max(this.alpha || 0, a);
     if (!this.simRunning) {
       this.simRunning = true;
       this.raf = requestAnimationFrame(() => this.simTick());
@@ -729,7 +779,10 @@ export class KGExplorerEngine {
   private simTick(): void {
     if (this.destroyed) return;
     let a = this.alpha || 0;
-    const nodes = this.activeNodes();
+    // v75: nodes mid-reveal are EXCLUDED from the physics — they glide from
+    // their parent to their home via the appear animation instead of
+    // exploding out of a multi-node collision at the spawn point
+    const nodes = this.activeNodes().filter((n) => !this.appearing.has(n.id));
     const nodeSet = new Set(nodes.map((n) => n.id));
     const edges = this.activeEdges();
     const draggedId = this.drag?.kind === "node" ? this.drag.id : null;
@@ -748,7 +801,8 @@ export class KGExplorerEngine {
         const mDrag = m.id === draggedId;
         const dx = n.x - m.x;
         const dy = n.y - m.y;
-        const minDist = TYPE_RADIUS[n.type] + TYPE_RADIUS[m.type] + 12;
+        // v75: collisionRadius(a) + collisionRadius(b) + 8
+        const minDist = TYPE_RADIUS[n.type] + TYPE_RADIUS[m.type] + 8;
         const dist = Math.sqrt(dx * dx + dy * dy);
         const d2 = dx * dx + dy * dy + 180;
         const gap = Math.max(0, minDist - dist);
@@ -771,6 +825,9 @@ export class KGExplorerEngine {
       }
     }
 
+    // v75 edge springs — targets keyed to the hierarchy level of the link:
+    // subject↔child 205, section↔child 120, subtopic↔child 72, deeper 38;
+    // prerequisites 115 / other relations 145 (state collars 55)
     for (const e of edges) {
       const n = this.nodeById.get(e.rtFrom);
       const m = this.nodeById.get(e.rtTo);
@@ -780,13 +837,24 @@ export class KGExplorerEngine {
       const dx = m.x - n.x;
       const dy = m.y - n.y;
       const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
+      const isRoot = n.type === "ROOT" || m.type === "ROOT";
+      const isUnit = n.type === "UNIT" || m.type === "UNIT";
+      const isTopic = n.type === "TOPIC" || m.type === "TOPIC";
       const target =
         e.kind === "hier"
-          ? Math.max(64, TYPE_RADIUS[n.type] + TYPE_RADIUS[m.type] + Math.max(26, 120 - 18 * this.depth(n)))
+          ? isRoot
+            ? 205
+            : isUnit
+              ? 120
+              : isTopic
+                ? 72
+                : 38
           : e.kind === "pre"
-            ? 150
-            : 160;
-      const k = e.kind === "hier" ? 0.028 : 0.008;
+            ? 115
+            : e.kind === "state"
+              ? 55
+              : 145;
+      const k = e.kind === "hier" ? 0.028 : e.kind === "pre" ? 0.012 : 0.008;
       const f = (d - target) * k;
       const fx = (dx / d) * f;
       const fy = (dy / d) * f;
@@ -917,11 +985,30 @@ export class KGExplorerEngine {
     label.textContent = this.shortLabel(n);
     g.appendChild(label);
 
+    // +N badge: hidden structural children await a double-click (v75's
+    // subtopic spec-count hint)
+    const hiddenKids = this.collapsedChildCount(n);
+    if (hiddenKids > 0) {
+      const bc = svgEl("circle");
+      bc.setAttribute("cx", String(-r + 2));
+      bc.setAttribute("cy", String(r - 2));
+      bc.setAttribute("r", "7");
+      bc.setAttribute("fill", TYPE_COLOR[n.type] ?? "#3d79a6");
+      g.appendChild(bc);
+      const bt = svgEl("text");
+      bt.setAttribute("class", "expandBadge");
+      bt.setAttribute("x", String(-r + 2));
+      bt.setAttribute("y", String(r - 2 + 3.2));
+      bt.setAttribute("text-anchor", "middle");
+      bt.textContent = `+${hiddenKids > 99 ? "99" : hiddenKids}`;
+      g.appendChild(bt);
+    }
+
     g.setAttribute(
       "aria-label",
       `${TYPE_LABEL[n.type]} ${n.title}${n.code ? ` (${n.code})` : ""}${
         n.mastery != null ? `, mastery ${Math.round(n.mastery * 100)}%` : ""
-      }`,
+      }${this.collapsedChildCount(n) > 0 ? ", double-click to expand" : ""}`,
     );
     g.setAttribute("tabindex", "-1");
 
@@ -980,7 +1067,9 @@ export class KGExplorerEngine {
   private shouldLabel(n: RT): boolean {
     if (this.selected === n.id || this.hovered === n.id) return true;
     if (n.type === "ROOT" || n.type === "UNIT" || n.type === "TOPIC" || n.type === "PAPER") return true;
-    return this.scale >= 1.12;
+    // v75 hides SpecificationPoint labels below scale 1.02 on its 1500-unit
+    // canvas; scaled to this canvas the equivalent threshold is ~1.25
+    return this.scale >= 1.25;
   }
 
   private edgePath(e: EFE): string {
@@ -1138,7 +1227,7 @@ export class KGExplorerEngine {
     const next = this.trailPos + delta;
     if (next < 0 || next >= this.trail.length) return;
     this.trailPos = next;
-    this.selectNode(this.trail[next]);
+    this.navigate(this.trail[next]);
     this.buildTrailBar();
   }
 
@@ -1165,7 +1254,7 @@ export class KGExplorerEngine {
       .join("");
     this.crumbs.style.display = "block";
     this.crumbs.querySelectorAll(".c").forEach((c) => {
-      c.addEventListener("click", () => this.selectNode((c as HTMLElement).dataset.id!));
+      c.addEventListener("click", () => this.navigate((c as HTMLElement).dataset.id!));
     });
   }
 
@@ -1362,7 +1451,7 @@ export class KGExplorerEngine {
       this.resultsBox.innerHTML = "";
       return;
     }
-    const hits = this.activeNodes()
+    const hits = this.nodes
       .filter((n) => n.title.toLowerCase().includes(q) || (n.code ?? "").toLowerCase().includes(q))
       .slice(0, 12);
     if (!hits.length) {
@@ -1381,7 +1470,7 @@ export class KGExplorerEngine {
     this.resultsBox.style.display = "block";
     this.resultsBox.querySelectorAll(".r").forEach((r) => {
       r.addEventListener("click", () => {
-        this.selectNode((r as HTMLElement).dataset.id!);
+        this.navigate((r as HTMLElement).dataset.id!);
         this.resultsBox.style.display = "none";
         this.searchInput.value = "";
       });
@@ -1496,7 +1585,244 @@ export class KGExplorerEngine {
       // click handled by the node's own click handler
     }
     if (d.kind === "node" && d.moved) {
-      this.bootSim();
+      this.reheat(0.95); // v75 pointerup reheat
+    }
+  }
+
+  // ── reveal gating (v75 isSpecRevealed) ─────────────────────────────────
+
+  /**
+   * A node is revealed when it sits within the first two levels (root,
+   * clusters, cluster members — the reference's subject/sections/subtopics),
+   * or when every ancestor link below that level has been expanded.
+   * Misconceptions follow their parent (state overlay, not structure).
+   */
+  private isRevealed(n: RT): boolean {
+    if (this.depth(n) <= 2) return true;
+    const p = n.parentId ? this.nodeById.get(n.parentId) : undefined;
+    if (!p) return true; // orphan — the origin ring keeps it visible
+    if (n.type === "MISCONCEPTION") return this.isRevealed(p);
+    return this.expanded.has(p.id) && this.isRevealed(p);
+  }
+
+  /** hidden structural children of n (drives the +N badge) — children at
+   * depth ≤ 2 are always visible, so only deeper layers count */
+  private collapsedChildCount(n: RT): number {
+    if (this.expanded.has(n.id)) return 0;
+    const kids = this.structuralKids.get(n.id);
+    if (!kids?.length) return 0;
+    let c = 0;
+    for (const k of kids) {
+      const rt = this.nodeById.get(k.id);
+      if (rt && this.depth(rt) > 2) c++;
+    }
+    return c;
+  }
+
+  private expandNode(id: string): void {
+    if (this.expanded.has(id) || !this.structuralKids.get(id)?.length) return;
+    const n = this.nodeById.get(id);
+    const revealed = n ? this.collapsedChildCount(n) : 0;
+    this.expanded.add(id);
+    this.rebuildNodeDom();
+    this.bloomFrom(id); // glide parent→home; appearTick reheat settles after
+    this.refresh();
+    this.status(`Expanded ${n?.title ?? id} — ${revealed} items (double-click to collapse)`);
+  }
+
+  private collapseNode(id: string): void {
+    this.expanded.delete(id);
+    // prune references to nodes that just became hidden
+    this.pruneHiddenRefs();
+    this.rebuildNodeDom();
+    this.reheat(0.12); // v75 small-interaction reheat
+    this.refresh();
+    this.status(`Collapsed ${this.nodeById.get(id)?.title ?? id}`);
+  }
+
+  /**
+   * v75 reveal bloom (revealNodesAnimated): newly revealed children glide
+   * from their parent's CURRENT position to parent + local ring offset over
+   * ~820ms, OUTSIDE the physics. No reheat afterwards — the bloom IS the
+   * motion (a 0.9-alpha settle pass is what explodes the flower).
+   */
+  private startAppear(
+    entries: { id: string; fx: number; fy: number; tx: number; ty: number }[],
+  ): void {
+    const now = performance.now();
+    for (const en of entries) {
+      const n = this.nodeById.get(en.id);
+      if (!n) continue;
+      n.x = en.fx;
+      n.y = en.fy;
+      n.vx = 0;
+      n.vy = 0;
+      this.appearing.set(en.id, { fx: en.fx, fy: en.fy, tx: en.tx, ty: en.ty, t0: now, dur: 820 });
+    }
+    if (this.appearing.size && !this.appearRaf) {
+      this.appearRaf = requestAnimationFrame(() => this.appearTick());
+    }
+  }
+
+  private appearTick(): void {
+    if (this.destroyed) {
+      this.appearRaf = 0;
+      return;
+    }
+    const now = performance.now();
+    for (const [id, ap] of this.appearing) {
+      const n = this.nodeById.get(id);
+      if (!n) {
+        this.appearing.delete(id);
+        continue;
+      }
+      const p = (now - ap.t0) / ap.dur;
+      if (p >= 1) {
+        n.x = ap.tx;
+        n.y = ap.ty;
+        n.vx = 0;
+        n.vy = 0;
+        this.appearing.delete(id);
+        continue;
+      }
+      const e = 1 - Math.pow(1 - p, 3); // easeOutCubic — fast out, gentle settle
+      n.x = ap.fx + (ap.tx - ap.fx) * e;
+      n.y = ap.fy + (ap.ty - ap.fy) * e;
+    }
+    this.updatePositions();
+    this.updateMinimap();
+    if (this.appearing.size) {
+      this.appearRaf = requestAnimationFrame(() => this.appearTick());
+    } else {
+      this.appearRaf = 0;
+      // v75's post-reveal nudge magnitude (0.018 — the specMorph reheat):
+      // eases genuine overlaps without moving anything meaningfully. The
+      // 0.9 boot here was measured to explode the flower (session-131).
+      this.reheat(0.018);
+    }
+  }
+
+  /** glide entries when `pid` expands: structural children + misconceptions
+   * collared on them; targets = parent's current pos + local ring offset
+   * (v75's renderPos(parent) + localX/localY invariant) */
+  private bloomEntries(pid: string): { id: string; fx: number; fy: number; tx: number; ty: number }[] {
+    const p = this.nodeById.get(pid);
+    if (!p) return [];
+    const out: { id: string; fx: number; fy: number; tx: number; ty: number }[] = [];
+    for (const k of this.structuralKids.get(pid) ?? []) {
+      const kn = this.nodeById.get(k.id);
+      if (!kn) continue;
+      out.push({
+        id: k.id,
+        fx: p.x,
+        fy: p.y,
+        tx: p.x + (kn.homeX - p.homeX),
+        ty: p.y + (kn.homeY - p.homeY),
+      });
+      for (const g of this.nodes) {
+        if (g.type === "MISCONCEPTION" && g.parentId === k.id) {
+          out.push({
+            id: g.id,
+            fx: p.x,
+            fy: p.y,
+            tx: p.x + (g.homeX - p.homeX),
+            ty: p.y + (g.homeY - p.homeY),
+          });
+        }
+      }
+    }
+    return out;
+  }
+
+  /** newly revealed children glide from the parent to their local targets */
+  private bloomFrom(id: string): void {
+    this.startAppear(this.bloomEntries(id));
+  }
+
+  /** expand the ancestor chain of a hidden target (search / panel jumps) */
+  private revealChain(id: string): void {
+    const chain: string[] = [];
+    const guard = new Set<string>();
+    let cur = this.nodeById.get(id);
+    while (cur?.parentId && !guard.has(cur.id)) {
+      guard.add(cur.id);
+      const p = this.nodeById.get(cur.parentId);
+      if (!p) break;
+      // only levels with hidden layers below (depth ≥ 2 parents gate depth ≥ 3)
+      if (this.depth(p) >= 2 && !this.expanded.has(p.id)) chain.push(p.id);
+      cur = p;
+    }
+    if (!chain.length) return;
+    for (const pid of chain) {
+      this.expanded.add(pid);
+      this.bloomFrom(pid);
+    }
+    this.rebuildNodeDom();
+  }
+
+  /** reveal + select — the reference's revealAncestorsForNode + selectNode */
+  private navigate(id: string): void {
+    this.revealChain(id);
+    this.selectNode(id);
+  }
+
+  /**
+   * v75 expandScopeNode: a scope node (root / unit) double-clicked with any
+   * hidden descendant blooms the WHOLE subtree below it; with everything
+   * already open, it collapses the scope back to the gated default.
+   */
+  private toggleScope(id: string): void {
+    const descendants: string[] = [];
+    const collect = (pid: string) => {
+      for (const k of this.structuralKids.get(pid) ?? []) {
+        descendants.push(k.id);
+        collect(k.id);
+      }
+    };
+    collect(id);
+    const withKids = descendants.filter((d) => (this.structuralKids.get(d)?.length ?? 0) > 0);
+    const anyHidden = descendants.some((d) => {
+      const rt = this.nodeById.get(d);
+      return rt ? !this.isRevealed(rt) : false;
+    });
+    if (anyHidden) {
+      for (const d of withKids) {
+        this.expanded.add(d);
+        this.bloomFrom(d);
+      }
+    } else {
+      for (const d of withKids) this.expanded.delete(d);
+    }
+    this.pruneHiddenRefs();
+    this.rebuildNodeDom();
+    if (!anyHidden) this.reheat(0.12); // collapse nudge; blooms animate themselves
+    this.refresh();
+    const n = this.nodeById.get(id);
+    this.status(
+      anyHidden
+        ? `Expanded all of ${n?.title ?? id} — ${descendants.length} nodes (double-click to collapse the scope)`
+        : `Collapsed ${n?.title ?? id} back to its topics`,
+    );
+  }
+
+  /** drop selection/pin/compare/keyboard references to now-hidden nodes */
+  private pruneHiddenRefs(): void {
+    const visible = new Set(this.activeNodes().map((n) => n.id));
+    this.multiSelect = new Set([...this.multiSelect].filter((x) => visible.has(x)));
+    this.pinned = new Set([...this.pinned].filter((x) => visible.has(x)));
+    if (this.compare && (!visible.has(this.compare.a) || !visible.has(this.compare.b))) {
+      this.compare = null;
+      // the compare content lives in the shared panel — hide it
+      this.panel.classList.remove("show");
+    }
+    if (this.selected && !visible.has(this.selected)) {
+      this.selected = null;
+      this.selectedEdge = null;
+      this.panel.classList.remove("show");
+      this.crumbs.style.display = "none";
+    }
+    if (this.keyboardId && !visible.has(this.keyboardId)) {
+      this.keyboardId = this.selected ?? [...visible][0] ?? null;
     }
   }
 
@@ -1504,10 +1830,30 @@ export class KGExplorerEngine {
     const target = e.target as Element;
     const nodeEl = target.closest?.(".node") as SVGGElement | null;
     if (nodeEl && nodeEl.dataset.id) {
-      this.exploreNeighborhood(nodeEl.dataset.id);
-    } else {
-      this.fitView();
+      const id = nodeEl.dataset.id;
+      const n = this.nodeById.get(id);
+      if (!n) return;
+      // 1) own hidden children → reveal them (v75 SubTopic double-click)
+      if (this.collapsedChildCount(n) > 0) {
+        this.expandNode(id);
+        return;
+      }
+      // 2) expanded with nothing left hidden → collapse own children
+      if (this.expanded.has(id)) {
+        this.collapseNode(id);
+        return;
+      }
+      // 3) scope nodes (root / unit) bulk-toggle their subtree (v75
+      //    Section/Subject double-click)
+      if (this.depth(n) <= 1 && (this.structuralKids.get(id)?.length ?? 0) > 0) {
+        this.toggleScope(id);
+        return;
+      }
+      // 4) leaf → neighborhood exploration stays on double-click
+      this.exploreNeighborhood(id);
+      return;
     }
+    this.fitView();
   }
 
   // ── lasso (v75) ──────────────────────────────────────────────────────────
@@ -1694,7 +2040,7 @@ export class KGExplorerEngine {
     this.connectedRoot = id;
     this.connectedSet = set;
     this.rebuildNodeDom();
-    this.bootSim();
+    this.reheat(0.15); // v75 exploration reheat
     this.refresh();
     this.status(`Exploring ${this.nodeById.get(id)?.title ?? id} — ${set.size} connected nodes (c restores the full graph)`);
     this.selectNode(id, true);
@@ -1712,7 +2058,7 @@ export class KGExplorerEngine {
     this.connectedSet = null;
     this.connectedRoot = null;
     this.rebuildNodeDom();
-    this.bootSim();
+    this.reheat(0.15);
     this.fitView();
     this.refresh();
   }

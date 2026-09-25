@@ -255,7 +255,9 @@ export function historyHost(
           type: "MISCONCEPTION",
           title: m.title,
           code: m.code,
-          parentId: null,
+          // collar the implicated topic (state overlay) — the graph host links
+          // misconceptions by edges, but the layout needs the parent to hug it
+          parentId: topicId,
           misconception: { probability: 1, active: true },
           subtitle: `Implicated by your answers on ${graph.nodes.find((g) => g.id === topicId)?.title ?? "a topic"}`,
         });
