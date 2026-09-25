@@ -24,6 +24,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { api, ApiError } from "@/lib/api";
+import { scopeChips } from "@/lib/applicability";
 import type {
   ExamPaperBrowseView,
   ExamPaperDetailView,
@@ -231,7 +232,6 @@ function PaperRow({ paperId }: { paperId: string }) {
   const [detail, setDetail] = useState<ExamPaperDetailView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openQuestionId, setOpenQuestionId] = useState<string | null>(null);
-
   useEffect(() => {
     let cancelled = false;
     api
@@ -253,6 +253,54 @@ function PaperRow({ paperId }: { paperId: string }) {
       {!error && !detail && <Skeleton className="h-14 w-full" />}
       {detail && (
         <div>
+          {(() => {
+            // T-C29: the paper's official assessment scope — derived ONLY from
+            // the detail payload's spec-point refs (T-C28 shared projection).
+            // No refs -> render nothing; refs but none applicability-bearing
+            // -> the T-C25 honest footnote (backfill pending).
+            let refCount = 0;
+            let scopedQuestions = 0;
+            const chips = new Set<string>();
+            for (const q of detail.questions) {
+              let scoped = false;
+              for (const ref of q.specPoints ?? []) {
+                refCount += 1;
+                if (ref.applicability) {
+                  scoped = true;
+                  for (const c of scopeChips(ref.applicability)) chips.add(c);
+                }
+              }
+              if (scoped) scopedQuestions += 1;
+            }
+            if (refCount === 0) return null;
+            if (scopedQuestions === 0) {
+              return (
+                <p className="mb-2 rounded-md border border-dashed px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                  Official assessment scope appears once the seed backfill
+                  activates — the mappings are registered but not yet scoped.
+                </p>
+              );
+            }
+            return (
+              <div className="mb-2 rounded-md border bg-muted/30 p-2.5">
+                <p className="text-[11px] font-medium text-muted-foreground">
+                  Official assessment scope
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {[...chips].map((chip) => (
+                    <Badge key={chip} variant="outline" className="text-[10px]">
+                      {chip}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  {scopedQuestions} of {detail.questions.length} question
+                  {detail.questions.length === 1 ? "" : "s"} carry official
+                  spec mappings.
+                </p>
+              </div>
+            );
+          })()}
           {detail.questions.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No questions registered for this paper yet.
@@ -295,6 +343,33 @@ function PaperRow({ paperId }: { paperId: string }) {
                           ))}
                       </span>
                     </button>
+                    {open && (q.specPoints?.length ?? 0) > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 border-t px-2.5 py-1.5">
+                        {(q.specPoints ?? []).map((ref) => {
+                          const chips = ref.applicability ? scopeChips(ref.applicability) : [];
+                          return (
+                            <span key={`${ref.code}:${ref.role}`} className="flex items-center gap-1">
+                              <Badge
+                                variant="outline"
+                                className="text-[10px]"
+                                title={`${ref.role.toLowerCase()} mapping${ref.applicability ? "" : " · scope pending backfill"}`}
+                              >
+                                {ref.code}
+                              </Badge>
+                              {chips.map((chip) => (
+                                <Badge
+                                  key={`${ref.code}-${chip}`}
+                                  variant="secondary"
+                                  className="text-[10px]"
+                                >
+                                  {chip}
+                                </Badge>
+                              ))}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                     {open && expanded && <QuestionPanel questionId={q.questionId} />}
                   </li>
                 );
