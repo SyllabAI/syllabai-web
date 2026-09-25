@@ -468,6 +468,18 @@ export interface AnswerMarkingView {
   marksAwarded: number | null;
   latestSmartMark: SmartMarkView | null;
   latestHumanMark: HumanMarkView | null;
+  /** G-5: paper context (nullable — SME question-bank answers have no paper row) */
+  examPaperId: string | null;
+  paperTitle: string | null;
+}
+
+/** G-5: the opt-in paged marking-queue envelope — returned only when page/size params are sent */
+export interface AnswerMarkingPageView {
+  items: AnswerMarkingView[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 }
 
 export interface KappaEvaluationView {
@@ -711,6 +723,18 @@ export interface MarkingQueueView {
   state: string;
   groups: MarkingGroupView[];
   items: MarkingQueueItem[];
+}
+
+/** G-5: the opt-in paged queue-v2 envelope — returned only when page/size params are sent; whole paper groups per page */
+export interface MarkingQueuePageView {
+  state: string;
+  groups: MarkingGroupView[];
+  items: MarkingQueueItem[];
+  page: number;
+  size: number;
+  totalGroups: number;
+  totalItems: number;
+  totalPages: number;
 }
 
 export interface PendingPaperView {

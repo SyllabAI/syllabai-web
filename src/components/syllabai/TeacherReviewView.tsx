@@ -66,6 +66,9 @@ const QUEUE_STATES = [
   { value: "OVERRIDDEN", label: "Overridden" },
 ] as const;
 
+/** G-5: paper groups per queue-v2 page, fixed for Cycle 1 (the backend owns counts) */
+const QUEUE_PAGE_SIZE = 5;
+
 const stateBadgeClass: Record<string, string> = {
   PENDING: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
   SMART_MARKED: "bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-200",
@@ -97,6 +100,12 @@ export function TeacherReviewView({
   const [queue, setQueue] = useState<MarkingQueueView | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [queueLoading, setQueueLoading] = useState(false);
+  // G-5: opt-in paper-group pagination — the backend owns the counts (never
+  // client-side estimates)
+  const [queuePage, setQueuePage] = useState(0);
+  const [queueTotalPages, setQueueTotalPages] = useState(0);
+  const [queueTotalGroups, setQueueTotalGroups] = useState(0);
+  const [queueTotalItems, setQueueTotalItems] = useState(0);
 
   // marking throughput metrics (counts of what happened)
   const [throughput, setThroughput] = useState<MarkingThroughputView | null>(null);
@@ -127,6 +136,8 @@ export function TeacherReviewView({
     "none" | "conflict" | "ok" | "loading" | "error"
   >("loading");
   const [kappaError, setKappaError] = useState<string | null>(null);
+  // G-5: κ scope — "ALL" (the whole bank) or one paper id from the queue groups
+  const [kappaPaperId, setKappaPaperId] = useState<string>("ALL");
 
   const loadLearners = useCallback(async () => {
     setLearnersError(null);
@@ -144,14 +155,18 @@ export function TeacherReviewView({
   const queueSeq = useRef(0);
   const detailSeq = useRef(0);
 
-  const loadQueue = useCallback(async (state: string) => {
+  const loadQueue = useCallback(async (state: string, page: number) => {
     const seq = ++queueSeq.current;
     setQueueLoading(true);
     setQueueError(null);
     try {
-      const view = await api.markingQueueV2(state);
+      const view = await api.markingQueueV2Page(state, page, QUEUE_PAGE_SIZE);
       if (seq !== queueSeq.current) return; // a newer state switch won
+      // the page view structurally carries the full view's fields
       setQueue(view);
+      setQueueTotalPages(view.totalPages);
+      setQueueTotalGroups(view.totalGroups);
+      setQueueTotalItems(view.totalItems);
     } catch (e) {
       if (seq !== queueSeq.current) return;
       setQueueError(e instanceof ApiError ? e.message : "Could not load the marking queue.");
@@ -173,7 +188,9 @@ export function TeacherReviewView({
     setKappaStatus("loading");
     setKappaError(null);
     try {
-      setKappa(await api.kappaLatest());
+      // G-5: the scope is real — a paper selection reads the PAPER-scoped row,
+      // never silently falls back to ALL
+      setKappa(await api.kappaLatest(kappaPaperId === "ALL" ? undefined : kappaPaperId));
       setKappaStatus("ok");
     } catch (e) {
       setKappa(null);
@@ -188,7 +205,7 @@ export function TeacherReviewView({
         setKappaError(e instanceof ApiError ? e.message : "Could not reach the κ evaluation.");
       }
     }
-  }, []);
+  }, [kappaPaperId]);
 
   useEffect(() => {
     loadLearners();
@@ -197,12 +214,12 @@ export function TeacherReviewView({
   }, [loadLearners, loadKappa, loadThroughput]);
 
   useEffect(() => {
-    loadQueue(queueState);
+    loadQueue(queueState, queuePage);
     setDetail(null);
     setDetailError(null);
     setActionError(null);
     setActionNotice(null);
-  }, [queueState, loadQueue]);
+  }, [queueState, queuePage, loadQueue]);
 
   const selectAnswer = useCallback(
     async (answerId: string) => {
@@ -235,11 +252,11 @@ export function TeacherReviewView({
   const refreshDetailAndQueue = useCallback(
     async (answerId: string) => {
       await selectAnswer(answerId);
-      await loadQueue(queueState);
+      await loadQueue(queueState, queuePage);
       await loadThroughput();
       await loadKappa(); // human marks extend the κ pairing set
     },
-    [selectAnswer, loadQueue, queueState, loadThroughput, loadKappa],
+    [selectAnswer, loadQueue, queueState, queuePage, loadThroughput, loadKappa],
   );
 
   /** sprint-2 §6: bounded Smart Mark batch for one paper group — runs the
@@ -267,7 +284,7 @@ export function TeacherReviewView({
         if (detail) {
           await selectAnswer(detail.answerId);
         }
-        await loadQueue(queueState);
+        await loadQueue(queueState, queuePage);
         await loadThroughput();
       } catch (e) {
         setActionError(e instanceof ApiError ? e.message : "The batch could not run.");
@@ -275,7 +292,7 @@ export function TeacherReviewView({
         setActionBusy(null);
       }
     },
-    [queue, detail, selectAnswer, loadQueue, queueState, loadThroughput],
+    [queue, detail, selectAnswer, loadQueue, queueState, queuePage, loadThroughput],
   );
 
   const runSmartMark = useCallback(
@@ -361,11 +378,13 @@ export function TeacherReviewView({
     setActionError(null);
     setActionNotice(null);
     try {
-      const evaluation = await api.evaluateKappa();
+      const evaluation = await api.evaluateKappa(
+        kappaPaperId === "ALL" ? undefined : kappaPaperId,
+      );
       setKappa(evaluation);
       setKappaStatus("ok");
       setActionNotice(
-        `κ = ${evaluation.kappa.toFixed(2)} on ${evaluation.sampleSize} paired point decisions (gate ${evaluation.passed ? "PASSED" : "not passed"}, threshold ${evaluation.threshold.toFixed(2)}).`,
+        `κ = ${evaluation.kappa.toFixed(2)} on ${evaluation.sampleSize} paired point decisions (${evaluation.scope === "PAPER" ? "this paper's scope" : "all papers"}; gate ${evaluation.passed ? "PASSED" : "not passed"}, threshold ${evaluation.threshold.toFixed(2)}).`,
       );
     } catch (e) {
       if (is409(e)) {
@@ -378,7 +397,23 @@ export function TeacherReviewView({
     } finally {
       setActionBusy(null);
     }
-  }, []);
+  }, [kappaPaperId]);
+
+  // G-5: papers offered as κ scope = the distinct papers in the loaded queue
+  // view's groups. The unfiled (question-bank) group has no paper id BY
+  // DESIGN — it is excluded, never invented into a scope.
+  const kappaPaperOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    queue?.groups.forEach((group) => {
+      if (group.paperId) {
+        seen.set(
+          group.paperId,
+          group.paperTitle ?? group.paperCode ?? group.paperId,
+        );
+      }
+    });
+    return Array.from(seen.entries()).map(([id, title]) => ({ id, title }));
+  }, [queue]);
 
   const smartBreakdownPoints = useMemo(() => {
     const points: { markPointId: string; awarded: boolean }[] = [];
@@ -503,7 +538,30 @@ export function TeacherReviewView({
             provisional.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <Label htmlFor="kappa-scope" className="text-xs text-muted-foreground">
+              Scope
+            </Label>
+            <Select value={kappaPaperId} onValueChange={(v) => setKappaPaperId(v)}>
+              <SelectTrigger id="kappa-scope" className="h-8 w-[280px]">
+                <SelectValue placeholder="All papers" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All papers (whole bank)</SelectItem>
+                {kappaPaperOptions.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground">
+              Papers come from the queue view below. Gate rule: the ALL-scope row OR this
+              paper&apos;s own row must pass — with neither, Smart Mark stays provisional.
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
           {kappaStatus === "loading" ? (
             <Skeleton className="h-9 w-64" />
           ) : kappa ? (
@@ -514,7 +572,10 @@ export function TeacherReviewView({
                 </Badge>
                 <span className="text-sm text-muted-foreground">
                   {kappa.sampleSize} pairs · threshold {kappa.threshold.toFixed(2)} ·{" "}
-                  {kappa.scope === "ALL" ? "all papers" : "one paper"} ·{" "}
+                  {kappa.scope === "ALL"
+                    ? "all papers"
+                    : kappaPaperOptions.find((p) => p.id === kappa.paperId)?.title ??
+                      "one paper"} ·{" "}
                   {formatRelative(kappa.computedAt)}
                 </span>
               </div>
@@ -548,6 +609,7 @@ export function TeacherReviewView({
               </Button>
             </>
           )}
+          </div>
         </CardContent>
       </Card>
 
@@ -622,7 +684,17 @@ export function TeacherReviewView({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Tabs value={queueState} onValueChange={setQueueState}>
+          <Tabs
+            value={queueState}
+            onValueChange={(v) => {
+              // a tab switch resets the page AND the κ scope: the paper list
+              // is this view's, and a stale paper id would render as a Select
+              // value with no matching option
+              setQueueState(v);
+              setQueuePage(0);
+              setKappaPaperId("ALL");
+            }}
+          >
             <TabsList className="grid h-auto w-full max-w-xl grid-cols-2 sm:grid-cols-4">
               {QUEUE_STATES.map((s) => (
                 <TabsTrigger key={s.value} value={s.value} className="text-xs">
@@ -631,6 +703,34 @@ export function TeacherReviewView({
               ))}
             </TabsList>
           </Tabs>
+
+          {!queueError && queue && queue.groups.length > 0 && (
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>
+                {queueTotalGroups} paper{queueTotalGroups === 1 ? "" : "s"} ·{" "}
+                {queueTotalItems} answer{queueTotalItems === 1 ? "" : "s"} · page{" "}
+                {queuePage + 1} of {Math.max(queueTotalPages, 1)}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={queuePage === 0 || queueLoading}
+                  onClick={() => setQueuePage((p) => Math.max(0, p - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={queuePage + 1 >= queueTotalPages || queueLoading}
+                  onClick={() => setQueuePage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
 
           {queueError ? (
             <p className="text-sm text-destructive">{queueError}</p>

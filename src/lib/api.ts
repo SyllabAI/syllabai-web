@@ -62,6 +62,7 @@ import type {
   TeacherEnrichedReviewQueueViewV3,
   TeacherFindingView,
   TeacherLearnerView,
+  MarkingQueuePageView,
   MarkingQueueView,
   MarkingThroughputView,
   SmartMarkBatchView,
@@ -514,6 +515,13 @@ export const api = {
   /** sprint-2 §6/§7: the deterministic paper-grouped queue with mark→next links */
   markingQueueV2: (state: string) =>
     request<MarkingQueueView>(`/api/v1/teacher/marking/queue-v2?state=${state}`),
+
+  // G-5: opt-in paper-group pagination — the paged envelope ONLY when page/size
+  // are present; without them the full view above is returned (compatibility)
+  markingQueueV2Page: (state: string, page: number, size: number) =>
+    request<MarkingQueuePageView>(
+      `/api/v1/teacher/marking/queue-v2?state=${state}&page=${page}&size=${size}`,
+    ),
 
   /** sprint-2 §6: throughput metrics — counts of what happened */
   markingThroughput: () =>
