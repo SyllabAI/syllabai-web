@@ -53,6 +53,8 @@ def http(method, path, token=None, payload=None, timeout=180):
             return e.code, json.loads(body)
         except Exception:
             return e.code, body
+    except urllib.error.URLError as e:  # cold free-tier backend: hang/refused/reset — report, retry, never crash
+        return 0, {"raw": str(getattr(e, "reason", e))}
 
 
 def wait_healthy(max_wait_s: int = 300) -> bool:
