@@ -10,22 +10,27 @@
  * awaiting marking show "awaiting marks" (never a guess), and marks/labels
  * appear exactly when an authoritative mark exists.
  */
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   CheckCircle2,
   ClipboardList,
   Clock,
   HelpCircle,
   Hourglass,
+  Network,
   RotateCcw,
   Timer,
   TriangleAlert,
   XCircle,
 } from "lucide-react";
-import type { AttemptHistoryItem, AttemptHistoryView } from "@/lib/types";
+import type { AttemptHistoryItem, AttemptHistoryView, LearnerKnowledgeGraphView } from "@/lib/types";
+import { KGExplorer } from "@/components/syllabai/kg-explorer/KGExplorer";
+import { historyHost } from "@/components/syllabai/kg-explorer/adapters";
 
 const MARKING_STATE_LABELS: Record<string, string> = {
   AUTO_GRADED: "auto-graded",
@@ -204,24 +209,51 @@ export function HistoryView({
   loading,
   error,
   onPracticeTopic,
+  graph,
 }: {
   history: AttemptHistoryView | null;
   loading: boolean;
   error: string | null;
   onPracticeTopic: (nodeId: string, title: string) => void;
+  /** optional personalized graph payload — the Map view joins attempts onto
+   *  the curriculum structure; absent = isolated topic nodes */
+  graph?: LearnerKnowledgeGraphView | null;
 }) {
+  const [view, setView] = useState<"list" | "map">("list");
+
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ClipboardList className="size-4 text-primary" aria-hidden="true" />
-            My learning history
-          </CardTitle>
-          <CardDescription>
-            Every attempt you have made — answers, marks and marking state, straight from
-            your recorded evidence. Retry a topic whenever you are ready.
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ClipboardList className="size-4 text-primary" aria-hidden="true" />
+                My learning history
+              </CardTitle>
+              <CardDescription>
+                Every attempt you have made — answers, marks and marking state, straight from
+                your recorded evidence. Retry a topic whenever you are ready.
+              </CardDescription>
+            </div>
+            {history && history.attempts.length > 0 && (
+              <ToggleGroup
+                type="single"
+                value={view}
+                onValueChange={(v) => v && setView(v as "list" | "map")}
+                aria-label="History view"
+              >
+                <ToggleGroupItem value="list" className="gap-1.5 text-xs">
+                  <ClipboardList className="size-3.5" aria-hidden="true" />
+                  List
+                </ToggleGroupItem>
+                <ToggleGroupItem value="map" className="gap-1.5 text-xs">
+                  <Network className="size-3.5" aria-hidden="true" />
+                  Map
+                </ToggleGroupItem>
+              </ToggleGroup>
+            )}
+          </div>
         </CardHeader>
         {history && history.total > history.returned && (
           <CardContent className="pt-0">
@@ -232,7 +264,15 @@ export function HistoryView({
         )}
       </Card>
 
-      {loading && !history ? (
+      {view === "map" && history && history.attempts.length > 0 ? (
+        <KGExplorer
+          key={history.learnerId + history.returned}
+          height={620}
+          title="Where my learning happened"
+          subtitle="attempts by topic · marks · implicated misconceptions — the same record as the list"
+          host={historyHost(history, graph ?? null)}
+        />
+      ) : loading && !history ? (
         <div className="space-y-3">
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-32 w-full" />

@@ -437,6 +437,7 @@ export default function SyllabAiWorkbench() {
               loading={historyLoading}
               error={historyError}
               onPracticeTopic={onPracticeTopic}
+              graph={graph}
             />
           </TabsContent>
           <TabsContent value="papers">
@@ -480,6 +481,7 @@ export default function SyllabAiWorkbench() {
               loading={stateLoading}
               nodeTitles={titles}
               misconceptionTitles={titles}
+              graph={graph}
             />
           </TabsContent>
           {isTeacher && (

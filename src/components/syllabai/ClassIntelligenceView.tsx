@@ -13,12 +13,16 @@ import {
   Eye,
   GraduationCap,
   Layers,
+  Network,
   Radar,
   TriangleAlert,
   Users,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatRelative, humanizeCode } from "@/lib/format";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { KGExplorer } from "@/components/syllabai/kg-explorer/KGExplorer";
+import { classGraphHost } from "@/components/syllabai/kg-explorer/adapters";
 import type {
   ClassLearnerRow,
   ClassOverviewView,
@@ -62,6 +66,8 @@ export function ClassIntelligenceView({
   const [remediationError, setRemediationError] = useState<string | null>(null);
   // heatmap ordering: curriculum order (default) or weakest-first
   const [weakestFirst, setWeakestFirst] = useState(false);
+  // v75 explorer: the class graph over the same aggregates (session-129)
+  const [showGraph, setShowGraph] = useState(false);
 
   useEffect(() => {
     if (!selectedRootId) return;
@@ -214,6 +220,43 @@ export function ClassIntelligenceView({
 
       {overview && learners && (
         <>
+          {/* ── class graph explorer toggle (v75 port) ───────────── */}
+          <div className="flex justify-end">
+            <ToggleGroup
+              type="single"
+              value={showGraph ? "graph" : "tables"}
+              onValueChange={(v) => setShowGraph(v === "graph")}
+              aria-label="Class intelligence view"
+            >
+              <ToggleGroupItem value="tables" className="gap-1.5 text-xs">
+                <ClipboardCheck className="size-3.5" aria-hidden="true" />
+                Tables
+              </ToggleGroupItem>
+              <ToggleGroupItem value="graph" className="gap-1.5 text-xs">
+                <Network className="size-3.5" aria-hidden="true" />
+                Class graph
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+
+          {showGraph && (
+            <KGExplorer
+              key={overview.rootId + overview.measuredTopics}
+              height={620}
+              title={`${overview.rootCode} — class graph`}
+              subtitle="class mean mastery · misconception signals · reviews due · engagement"
+              host={classGraphHost(
+                overview,
+                drill ? { topicNodeId: drill.topic.nodeId, affectedLearners: drill.affectedLearners } : null,
+                {
+                  onOpenDrillDown: (t) => void openDrillDown(t),
+                },
+              )}
+            />
+          )}
+
+          {!showGraph && (
+          <>
           {/* ── overview stats (§2 class overview) ────────────────────── */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <StatCard
@@ -713,6 +756,8 @@ export function ClassIntelligenceView({
               </div>
             </CardContent>
           </Card>
+          </>
+          )}
         </>
       )}
     </div>

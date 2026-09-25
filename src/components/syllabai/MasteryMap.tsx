@@ -21,10 +21,12 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { ArrowDown, Brain, ListTree, Network, TriangleAlert } from "lucide-react";
+import { ArrowDown, Brain, Compass, ListTree, Network, TriangleAlert } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
 import { KnowledgeGraphView } from "@/components/syllabai/KnowledgeGraphView";
+import { KGExplorer } from "@/components/syllabai/kg-explorer/KGExplorer";
+import { learnerGraphHost } from "@/components/syllabai/kg-explorer/adapters";
 import type {
   LearnerKnowledgeGraphView,
   LearnerNodeWithStateView,
@@ -352,7 +354,7 @@ export function MasteryMap({
   subjectName: string | null;
   onPracticeTopic: (nodeId: string, title: string) => void;
 }) {
-  const [mode, setMode] = useState<"tree" | "graph">("tree");
+  const [mode, setMode] = useState<"tree" | "graph" | "explorer">("tree");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [chainNode, setChainNode] = useState<NestedNode | null>(null);
   const [chain, setChain] = useState<PrerequisiteView[] | null>(null);
@@ -424,7 +426,7 @@ export function MasteryMap({
             <ToggleGroup
               type="single"
               value={mode}
-              onValueChange={(v) => v && setMode(v as "tree" | "graph")}
+              onValueChange={(v) => v && setMode(v as "tree" | "graph" | "explorer")}
               aria-label="Mastery map view"
             >
               <ToggleGroupItem value="tree" className="gap-1.5 text-xs">
@@ -434,6 +436,10 @@ export function MasteryMap({
               <ToggleGroupItem value="graph" className="gap-1.5 text-xs">
                 <Network className="size-3.5" aria-hidden="true" />
                 Graph
+              </ToggleGroupItem>
+              <ToggleGroupItem value="explorer" className="gap-1.5 text-xs">
+                <Compass className="size-3.5" aria-hidden="true" />
+                Explorer
               </ToggleGroupItem>
             </ToggleGroup>
           </div>
@@ -466,13 +472,24 @@ export function MasteryMap({
                 </AccordionItem>
               ))}
             </Accordion>
-          ) : (
+          ) : mode === "graph" ? (
             <KnowledgeGraphView
               nodes={graph.nodes}
               rootId={graph.rootId}
               prerequisiteEdges={graph.prerequisiteEdges}
               selectedId={selectedId}
               onSelect={setSelectedId}
+            />
+          ) : (
+            <KGExplorer
+              key={graph.rootId}
+              height={620}
+              title={`${subjectName ?? graph.rootTitle} — explorer`}
+              subtitle="lenses · lasso (Shift+drag) · minimap · double-click to explore · click an edge to read it"
+              host={learnerGraphHost(graph, null, {
+                defaultLensId: "mastery",
+                onPracticeTopic,
+              })}
             />
           )}
         </CardContent>

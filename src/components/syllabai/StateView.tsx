@@ -1,14 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Activity, Brain, CalendarClock, TriangleAlert } from "lucide-react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Activity, Brain, CalendarClock, LineChart, TriangleAlert } from "lucide-react";
 import { formatDue, formatRelative } from "@/lib/format";
-import type { LearnerStateView } from "@/lib/types";
+import type { LearnerKnowledgeGraphView, LearnerStateView } from "@/lib/types";
+import { KGExplorer } from "@/components/syllabai/kg-explorer/KGExplorer";
+import { learnerGraphHost } from "@/components/syllabai/kg-explorer/adapters";
 
 const bandClass: Record<string, string> = {
   LOW: "[&>div]:bg-rose-500",
@@ -21,12 +25,18 @@ export function StateView({
   loading,
   nodeTitles,
   misconceptionTitles,
+  graph,
 }: {
   state: LearnerStateView | null;
   loading: boolean;
   nodeTitles: Record<string, string>;
   misconceptionTitles: Record<string, string>;
+  /** optional personalized graph payload — powers the Explorer (graph) view;
+   *  absent = the graph toggle renders an honest unavailable state */
+  graph?: LearnerKnowledgeGraphView | null;
 }) {
+  const [view, setView] = useState<"table" | "graph">("table");
+
   if (loading && !state) {
     return (
       <div className="space-y-3">
@@ -51,6 +61,44 @@ export function StateView({
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <ToggleGroup
+          type="single"
+          value={view}
+          onValueChange={(v) => v && setView(v as "table" | "graph")}
+          aria-label="My state view"
+        >
+          <ToggleGroupItem value="table" className="gap-1.5 text-xs">
+            <LineChart className="size-3.5" aria-hidden="true" />
+            Table
+          </ToggleGroupItem>
+          <ToggleGroupItem value="graph" className="gap-1.5 text-xs">
+            <Brain className="size-3.5" aria-hidden="true" />
+            Explorer
+          </ToggleGroupItem>
+        </ToggleGroup>
+      </div>
+
+      {view === "graph" ? (
+        graph ? (
+          <KGExplorer
+            key={graph.rootId + state.learnerId}
+            height={620}
+            title="My state — graph explorer"
+            subtitle="BKT mastery · decay · BDT misconceptions · review queue — the same numbers as the tables"
+            host={learnerGraphHost(graph, state, { defaultLensId: "effective" })}
+          />
+        ) : (
+          <Alert>
+            <AlertTitle>Graph view unavailable</AlertTitle>
+            <AlertDescription>
+              The personalized knowledge graph could not be loaded — the table view carries the same
+              measured numbers.
+            </AlertDescription>
+          </Alert>
+        )
+      ) : (
+      <>
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -196,6 +244,8 @@ export function StateView({
           )}
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

@@ -33,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   BookOpen,
   BookOpenCheck,
@@ -44,6 +45,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { KGExplorer } from "@/components/syllabai/kg-explorer/KGExplorer";
+import { conceptGraphHost } from "@/components/syllabai/kg-explorer/adapters";
 import type {
   ConceptGraphEdgeView,
   ConceptGraphSeedSummary,
@@ -70,6 +73,8 @@ export function ConceptGraphView() {
   // navigation
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["4CH1-S1", "4CH1-S3"]));
   const [selectedSp, setSelectedSp] = useState<NodeView | null>(null);
+  // v75 explorer mode over the same read models (session-129)
+  const [mode, setMode] = useState<"list" | "graph">("list");
 
   // ── data loading ───────────────────────────────────────────────
 
@@ -316,11 +321,45 @@ export function ConceptGraphView() {
                 : `${seedSummary.nodesCreated} nodes / ${seedSummary.edgesCreated} edges seeded — ${seedSummary.validatedSemanticEdges} validated relationships`}
             </span>
           )}
+          <span className="ml-auto">
+            <ToggleGroup
+              type="single"
+              value={mode}
+              onValueChange={(v) => v && setMode(v as "list" | "graph")}
+              aria-label="Concept graph view"
+              disabled={!tree || !edges}
+            >
+              <ToggleGroupItem value="list" className="gap-1.5 text-xs">
+                <BookOpen className="size-3.5" aria-hidden="true" />
+                List
+              </ToggleGroupItem>
+              <ToggleGroupItem value="graph" className="gap-1.5 text-xs">
+                <Network className="size-3.5" aria-hidden="true" />
+                Explorer
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </span>
         </CardContent>
       </Card>
 
+      {/* ── explorer: the v75-style whole-graph view ───────────── */}
+      {rootId && mode === "graph" && tree && edges && (
+        <KGExplorer
+          key={rootId}
+          height={620}
+          title="Curriculum concept graph — explorer"
+          subtitle="spec anchor vs graph-derived layer · click an edge for its provenance"
+          host={conceptGraphHost(edges, tree, {
+            onOpenSpec: (node) => {
+              setSelectedSp(node);
+              setMode("list");
+            },
+          })}
+        />
+      )}
+
       {/* ── browser: curriculum tree | spec-point detail ────────── */}
-      {rootId && (
+      {rootId && mode === "list" && (
         <div className="grid gap-4 lg:grid-cols-[minmax(260px,2fr)_3fr]">
           <Card>
             <CardHeader className="pb-2">
