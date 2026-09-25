@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/accordion";
 import { ArrowDown, Brain, Compass, ListTree, Network, TriangleAlert } from "lucide-react";
 import { api } from "@/lib/api";
+import { scopeChips } from "@/lib/applicability";
 import { formatRelative } from "@/lib/format";
 import { KnowledgeGraphView } from "@/components/syllabai/KnowledgeGraphView";
 import { KGExplorer } from "@/components/syllabai/kg-explorer/KGExplorer";
@@ -302,6 +303,25 @@ function NodeDetailCard({
             <span>review: {node.reviewReason?.toLowerCase().replace(/_/g, " ")}</span>
           )}
         </div>
+        {node.applicability && (
+          <div className="rounded-md border bg-muted/30 p-3">
+            <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
+              Official assessment scope
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {scopeChips(node.applicability).map((chip) => (
+                <Badge key={chip} variant="outline" className="text-[10px]">
+                  {chip}
+                </Badge>
+              ))}
+            </div>
+            {node.applicability.rule && (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                {node.applicability.rule}
+              </p>
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           {(node.type === "TOPIC" || node.type === "SUBTOPIC") && (
             <Button size="sm" onClick={() => onPracticeTopic(node.id, node.title)} className="h-8 text-xs">

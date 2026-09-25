@@ -363,6 +363,10 @@ export interface LearnerNodeWithStateView {
   reviewReason: string | null;
   misconceptionProbability: number | null;
   misconceptionActive: boolean | null;
+  /** official paper/unit/tier scope, verbatim from core (T-C28) — present on
+   *  spec-point nodes only; null on every other node. Curriculum metadata, not
+   *  learner state: render it or omit it, never derive it. */
+  applicability?: SpecPointApplicability | null;
 }
 
 /** A drawable prerequisite edge: prerequisiteId → nodeId (which requires it). */
@@ -941,6 +945,10 @@ export interface ExamPaperQuestionMeta {
   versionValidationState: string | null;
   partCount: number;
   currentVersionId: string | null;
+  /** rich spec-point refs from the SHARED projection (T-C28): PRIMARY first
+   *  then SECONDARY, code-ordered; empty for unmapped questions — honest
+   *  absence, never synthesized. */
+  specPoints?: SpecPointRef[];
 }
 
 export interface ExamPaperDetailView {
