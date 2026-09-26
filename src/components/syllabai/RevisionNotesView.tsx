@@ -563,11 +563,13 @@ export function RevisionNotesView({
             </div>
           </article>
           {/* the note-anchored CLA overlay — same production contract as the
-              assistant tab, SPECIFICATION_POINT-anchored to this note */}
+              assistant tab, NOTE_SECTION-anchored to this note (the server
+              resolves the note and leads the evidence with its own sections) */}
           <NoteClaOverlay
             open={claOpen}
             onOpenChange={setClaOpen}
             rootId={rootId}
+            noteId={body.noteId}
             noteTitle={body.title}
             subtopicTitle={location.sub.title}
             specPointCodes={location.note.specPointCodes}

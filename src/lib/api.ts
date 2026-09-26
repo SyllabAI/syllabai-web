@@ -507,12 +507,14 @@ export const api = {
       | "PAST_PAPER_QUESTION"
       | "QUESTION_PART"
       | "SPECIFICATION_POINT"
-      | "SMART_LESSON";
+      | "SMART_LESSON"
+      | "NOTE_SECTION";
     rootId?: string;
     topicNodeId?: string;
     questionId?: string;
     partId?: string;
     specCode?: string;
+    noteId?: string;
     mode: ClaMode;
     question: string;
   }) =>
