@@ -1211,7 +1211,8 @@ export interface ClaContextView {
     | "PAST_PAPER_QUESTION"
     | "QUESTION_PART"
     | "SPECIFICATION_POINT"
-    | "SMART_LESSON";
+    | "SMART_LESSON"
+    | "NOTE_SECTION";
   reference: string;
   topicNodeId: string | null;
   rootId: string | null;
@@ -1231,6 +1232,9 @@ export interface ClaContextView {
   partLabel: string | null;
   /** SMART_LESSON only: the learner's own deterministic lesson next-action */
   lessonAction: ClaLessonActionView | null;
+  /** NOTE_SECTION only: the resolved revision note the learner is reading */
+  noteId: string | null;
+  noteTitle: string | null;
 }
 
 /** Citation mirror of the Tutor citation (resolved, verbatim label + deep link). */

@@ -151,6 +151,14 @@ export function MetaRow({ result }: { result: ClaAnswerView }) {
         {result.context.partLabel ? ` (${result.context.partLabel})` : ""} ·{" "}
         {result.context.validationState}
       </span>
+      {result.context.kind === "NOTE_SECTION" && result.context.noteTitle && (
+        <span>
+          note:{" "}
+          <span className="font-medium text-foreground">
+            {result.context.noteTitle}
+          </span>
+        </span>
+      )}
       <span>evidence {result.evidenceCount}</span>
       <span>
         {result.model ?? "deterministic"} / {result.provider}

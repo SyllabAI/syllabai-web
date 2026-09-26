@@ -8,10 +8,13 @@
  * opens the same panel), and the panel is EXPLICITLY CONTEXTUAL — it answers
  * only about the note being read, through the SAME production contract as the
  * assistant tab (`POST /api/v1/learners/me/cla/ask`), anchored to a
- * SPECIFICATION_POINT context: the note's spec-point code(s) resolve
- * server-side, fail-closed, VALIDATED-only, subject-isolated. The answer
- * arrives grounded with citations, evidence count and the read-only tool
- * trace — the deterministic topic anchor rides along in the result context.
+ * NOTE_SECTION context: the note's id is the opaque reference; the server
+ * resolves the note, anchors it on its first VALIDATED spec point (fail-closed,
+ * subject-isolated), and LEADS the evidence with the note's own sections —
+ * the note is id-anchored into SOURCES, never similarity-anchored, so it can
+ * never lose its own evidence to a generic question's cosine ranking. The
+ * answer arrives grounded with citations (the note's sections cite as
+ * "Revision notes"), evidence count and the read-only tool trace.
  *
  * The 4 quick actions are the operator's spec, verbatim:
  *   Definitions · Summary · Pitfalls · Exam help
@@ -114,6 +117,7 @@ export function NoteClaOverlay({
   open,
   onOpenChange,
   rootId,
+  noteId,
   noteTitle,
   subtopicTitle,
   specPointCodes,
@@ -122,26 +126,21 @@ export function NoteClaOverlay({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** the subject root — scopes the server-side spec-point resolution */
+  /** the subject root — scopes the server-side note → spec-point resolution */
   rootId: string | null;
+  /** the open note's stable id — the anchor the server resolves (NOTE_SECTION) */
+  noteId: string;
   noteTitle: string;
   subtopicTitle: string | null;
-  /** the note's spec-point codes; the first is the default anchor */
+  /** the note's spec-point codes, shown as informational badges */
   specPointCodes: string[];
   messages: ClaChatMessage[];
   setMessages: Dispatch<SetStateAction<ClaChatMessage[]>>;
 }) {
-  // the anchor defaults to the note's first spec point; a multi-code note can
-  // switch (chips below) — the server resolves whichever code is sent
-  const [anchorCode, setAnchorCode] = useState<string>(specPointCodes[0] ?? "");
   const [freeMode, setFreeMode] = useState<NoteMode>("EXPLAIN");
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    setAnchorCode(specPointCodes[0] ?? "");
-  }, [specPointCodes]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -149,14 +148,14 @@ export function NoteClaOverlay({
 
   const ask = async (mode: NoteMode, question: string) => {
     const text = question.trim();
-    if (!text || busy || !anchorCode) return;
+    if (!text || busy) return;
     setMessages((m) => [...m, { kind: "user", text, at: Date.now() }]);
     setBusy(true);
     try {
       const result = await api.claAsk({
-        kind: "SPECIFICATION_POINT",
+        kind: "NOTE_SECTION",
         rootId: rootId ?? undefined,
-        specCode: anchorCode,
+        noteId,
         mode,
         question: text,
       });
@@ -167,11 +166,11 @@ export function NoteClaOverlay({
         // surface never sends HINT/CHECK, but the branch keeps the semantics)
         setMessages((m) => [...m, { kind: "gate", text: e.message, at: Date.now() }]);
       } else {
-        // 404 keeps its specific guidance (unresolvable spec point); 5xx maps
+        // 404 keeps its specific guidance (unresolvable note/anchor); 5xx maps
         // to the honest AI-unavailable message (s136)
         const msg =
           e instanceof ApiError && e.status === 404
-            ? "The server could not resolve this note's spec point in your subject — it may not be validated yet. Try another anchor code, or ask on the assistant tab."
+            ? "The server could not anchor this note in your subject — its spec point may not be validated yet. Try again later, or ask on the assistant tab."
             : aiAskErrorMessage(e, "Request failed");
         setMessages((m) => [
           ...m,
@@ -213,9 +212,10 @@ export function NoteClaOverlay({
             </SheetDescription>
           </SheetHeader>
 
-          {/* server-anchored context card: the note + its spec points. The
-              anchor chips pick WHICH spec code is sent — the server resolves
-              it fail-closed (data, not judgment, production §3) */}
+          {/* server-anchored context card: the note IS the anchor — the server
+              resolves it (NOTE_SECTION) and leads the evidence with its own
+              sections; the spec codes below are informational badges (the
+              server picks the validated anchor itself) */}
           <div className="space-y-1.5 border-b bg-muted/40 px-4 py-3">
             <div className="flex items-start gap-2">
               <BookOpenText className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
@@ -228,30 +228,18 @@ export function NoteClaOverlay({
                 </Badge>
               )}
               {specPointCodes.map((c) => (
-                <button
+                <Badge
                   key={c}
-                  type="button"
-                  onClick={() => setAnchorCode(c)}
-                  aria-pressed={anchorCode === c}
-                  title={
-                    specPointCodes.length > 1
-                      ? "Ask anchored to this spec point"
-                      : undefined
-                  }
-                  className={cn(
-                    "rounded-full border px-2 py-px font-mono text-[10px] transition-colors",
-                    anchorCode === c
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border text-muted-foreground hover:border-primary/40",
-                  )}
+                  variant="outline"
+                  className="font-mono text-[10px] text-muted-foreground"
                 >
                   {c}
-                </button>
+                </Badge>
               ))}
             </div>
             <p className="pl-6 text-[11px] leading-snug text-muted-foreground">
-              Answers anchor to this note&apos;s spec point — the server resolves it
-              from your subject, validated sources only.
+              Answers are grounded in this note&apos;s own sections — the server
+              anchors it on its validated spec point and cites its sources.
             </p>
           </div>
 
@@ -317,9 +305,10 @@ export function NoteClaOverlay({
             <div className="space-y-3 px-4 py-3">
               {messages.length === 0 && !busy && (
                 <p className="pt-2 text-center text-xs leading-relaxed text-muted-foreground">
-                  Ask about this note — answers are grounded in validated material
-                  for its spec point, cite the real sources, and refuse rather
-                  than guess when the material doesn&apos;t cover your question.
+                  Ask about this note — answers are grounded in its own sections
+                  plus validated material for its spec point, cite the real
+                  sources, and refuse rather than guess when the material doesn&apos;t
+                  cover your question.
                 </p>
               )}
               {messages.map((m, i) =>
@@ -393,8 +382,8 @@ export function NoteClaOverlay({
               {busy && (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                  Resolving the spec point → gathering validated evidence →
-                  grounding the answer…
+                  Resolving this note → gathering its sections + validated evidence
+                  → grounding the answer…
                 </p>
               )}
               <div ref={bottomRef} />
