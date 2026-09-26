@@ -73,6 +73,12 @@ export default function SyllabAiWorkbench() {
   // the assistant tab's thread; lifted here so it survives tab switches and
   // clears when the note changes (RevisionNotesView owns that reset)
   const [claNoteMessages, setClaNoteMessages] = useState<ClaChatMessage[]>([]);
+  // the question-anchored CLA transcripts (Exam Questions overlay, s129) —
+  // keyed by whole-question family key: one transcript per question, so it
+  // survives tab switches and switching questions never mixes threads
+  const [claQuestionMessages, setClaQuestionMessages] = useState<
+    Record<string, ClaChatMessage[]>
+  >({});
   // T-033: next-best-action read model (nba-rules/v1) — refreshed together with
   // state + graph because attempts change the evidence it ranks from.
   const [recommendations, setRecommendations] = useState<NextBestActionsView | null>(null);
@@ -433,6 +439,8 @@ export default function SyllabAiWorkbench() {
               subjectName={subjectName}
               onAttemptSubmitted={handleAttemptSubmitted}
               onAskTutorAbout={onAskTutorAbout}
+              claTranscripts={claQuestionMessages}
+              setClaTranscripts={setClaQuestionMessages}
             />
           </TabsContent>
           <TabsContent value="history">

@@ -36,7 +36,7 @@
  *   the learner model updates identically — the integration is the reuse.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -58,6 +58,7 @@ import {
   GraduationCap,
   Home,
   Layers,
+  Lightbulb,
   ListChecks,
   Loader2,
   Lock,
@@ -92,6 +93,8 @@ import {
   unitIsSaved,
   type ExamQuestionUnit,
 } from "@/lib/exam-families";
+import { QuestionClaOverlay } from "@/components/syllabai/QuestionClaOverlay";
+import type { ClaChatMessage } from "@/components/syllabai/ClaAssistantView";
 import type {
   AttemptHistoryView,
   AttemptResultView,
@@ -167,6 +170,10 @@ function subscribeSaved(notify: () => void) {
 
 const EMPTY_SAVED: Set<string> = new Set();
 
+/** stable empty transcript (s129) — avoids re-rendering the overlay with a
+ *  fresh [] identity when a question has no CLA history yet */
+const EMPTY_CLA_MESSAGES: ClaChatMessage[] = [];
+
 /** Save/unsave a whole family: the family key plus every member row id (so
  * bookmarks stored per-row before families existed — session-119 — keep
  * resolving, and un-saving clears them all). */
@@ -194,6 +201,8 @@ export function ExamQuestionsView({
   subjectName,
   onAttemptSubmitted,
   onAskTutorAbout,
+  claTranscripts,
+  setClaTranscripts,
 }: {
   /** the subject's KG root — scopes the taxonomy and the question lists */
   rootId: string | null;
@@ -205,6 +214,10 @@ export function ExamQuestionsView({
   subjectName?: string | null;
   onAttemptSubmitted: () => void;
   onAskTutorAbout?: (draft: string) => void;
+  /** per-question CLA transcripts (s129) — lifted to the page so they survive
+   *  tab switches, keyed by the whole-question family key */
+  claTranscripts: Record<string, ClaChatMessage[]>;
+  setClaTranscripts: Dispatch<SetStateAction<Record<string, ClaChatMessage[]>>>;
 }) {
   const [taxonomy, setTaxonomy] = useState<QuestionTopicTaxonomyView | null>(null);
   const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
@@ -218,6 +231,16 @@ export function ExamQuestionsView({
   const [questionsTopic, setQuestionsTopic] = useState<string | null>(null);
   const savedIds = useSyncExternalStore(subscribeSaved, savedSnapshot, () => EMPTY_SAVED);
   const [savedOnly, setSavedOnly] = useState(false);
+
+  /** the open CLA overlay's anchor (s129): the whole question (unit) + the
+   *  part its Approach card is aimed at (a box/row id, null = first target).
+   *  Captured at open — scrolling the page behind the drawer can never
+   *  silently change the anchor. */
+  const [claFor, setClaFor] = useState<{
+    unit: ExamQuestionUnit;
+    index: number;
+    targetId: string | null;
+  } | null>(null);
 
   /** bookmarks operate on whole questions (families), session-120 */
   const toggleSavedUnit = useCallback(
@@ -237,6 +260,14 @@ export function ExamQuestionsView({
     }
     return map;
   }, [graph]);
+
+  /** open the question-anchored CLA overlay (s129): header button passes null
+   *  (default target), a part's lightbulb passes that part's id */
+  const openCla = useCallback(
+    (unit: ExamQuestionUnit, index: number, targetId: string | null) =>
+      setClaFor({ unit, index, targetId }),
+    [],
+  );
 
   const attemptedQuestionIds = useMemo(
     () => new Set((history?.attempts ?? []).map((a) => a.questionId)),
@@ -499,6 +530,7 @@ export function ExamQuestionsView({
               onToggleSaved={toggleSavedUnit}
               onAttemptSubmitted={onAttemptSubmitted}
               onAskTutorAbout={onAskTutorAbout}
+              onAskCla={openCla}
             />
           ) : (
             <BankIndex
@@ -509,6 +541,30 @@ export function ExamQuestionsView({
           )}
         </div>
       </div>
+
+      {/* the question-anchored CLA overlay (s129) — ONE instance for the whole
+          browser; the anchor is captured at open and the transcript is per
+          whole question (lifted to the page, survives tab switches) */}
+      <QuestionClaOverlay
+        open={claFor !== null}
+        onOpenChange={(o) => {
+          if (!o) setClaFor(null);
+        }}
+        rootId={rootId}
+        unit={claFor?.unit ?? null}
+        questionNumber={claFor ? claFor.index + 1 : null}
+        initialTargetId={claFor?.targetId ?? null}
+        messages={claFor ? (claTranscripts[claFor.unit.key] ?? EMPTY_CLA_MESSAGES) : EMPTY_CLA_MESSAGES}
+        setMessages={(update) => {
+          if (!claFor) return;
+          const key = claFor.unit.key;
+          setClaTranscripts((prev) => {
+            const current = prev[key] ?? [];
+            const next = typeof update === "function" ? update(current) : update;
+            return { ...prev, [key]: next };
+          });
+        }}
+      />
     </div>
   );
 }
@@ -591,6 +647,7 @@ function TopicPane({
   onToggleSaved,
   onAttemptSubmitted,
   onAskTutorAbout,
+  onAskCla,
 }: {
   topic: QuestionTaxonomyTopic;
   questions: StudentQuestionView[] | null;
@@ -602,6 +659,9 @@ function TopicPane({
   onToggleSaved: (unit: ExamQuestionUnit) => void;
   onAttemptSubmitted: () => void;
   onAskTutorAbout?: (draft: string) => void;
+  /** open the question-anchored CLA overlay (s129) — unit + display index +
+   *  optional pre-aimed part target */
+  onAskCla: (unit: ExamQuestionUnit, index: number, targetId: string | null) => void;
 }) {
   const [difficulty, setDifficulty] = useState<DifficultyFilter>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | "mcq" | "structured">("all");
@@ -955,6 +1015,7 @@ function TopicPane({
             onToggleSaved={() => onToggleSaved(unit)}
             onAttemptSubmitted={onAttemptSubmitted}
             onAskTutorAbout={onAskTutorAbout}
+            onAskCla={(targetId) => onAskCla(unit, i, targetId)}
           />
         ))}
       </div>
@@ -972,6 +1033,7 @@ function ExamQuestionCard({
   onToggleSaved,
   onAttemptSubmitted,
   onAskTutorAbout,
+  onAskCla,
 }: {
   unit: ExamQuestionUnit;
   index: number;
@@ -980,6 +1042,9 @@ function ExamQuestionCard({
   onToggleSaved: () => void;
   onAttemptSubmitted: () => void;
   onAskTutorAbout?: (draft: string) => void;
+  /** open the CLA overlay (s129): null = whole question (Understand default);
+   *  a part id pre-aims Approach at that part */
+  onAskCla: (targetId: string | null) => void;
 }) {
   const [fullFor, setFullFor] = useState(false);
 
@@ -1018,6 +1083,16 @@ function ExamQuestionCard({
             size="sm"
             variant="ghost"
             className="h-8 gap-1.5 px-2 text-xs"
+            onClick={() => onAskCla(null)}
+            aria-haspopup="dialog"
+            title="Ask the contextual assistant about this question"
+          >
+            <Sparkles className="size-3.5 text-primary" aria-hidden /> Ask CLA
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 gap-1.5 px-2 text-xs"
             onClick={() => setFullFor(true)}
           >
             <Maximize2 className="size-3.5" aria-hidden /> Full screen
@@ -1052,6 +1127,7 @@ function ExamQuestionCard({
           onFullScreenChange={setFullFor}
           onAttemptSubmitted={onAttemptSubmitted}
           onAskTutorAbout={onAskTutorAbout}
+          onAskClaPart={onAskCla}
         />
       </div>
     </article>
@@ -1097,6 +1173,7 @@ function UnitBody({
   onFullScreenChange,
   onAttemptSubmitted,
   onAskTutorAbout,
+  onAskClaPart,
 }: {
   unit: ExamQuestionUnit;
   index: number;
@@ -1104,6 +1181,9 @@ function UnitBody({
   onFullScreenChange: (open: boolean) => void;
   onAttemptSubmitted: () => void;
   onAskTutorAbout?: (draft: string) => void;
+  /** per-part CLA entry (s129): opens the overlay with Approach aimed at the
+   *  given box/row id — threaded to every answer box's lightbulb */
+  onAskClaPart?: (targetId: string) => void;
 }) {
   const [flows, setFlows] = useState<Record<string, PartFlow>>({});
 
@@ -1219,6 +1299,7 @@ function UnitBody({
             onRetry={() => resetPart(part.id)}
             onSetSchemeOpen={(open) => patchFlow(part.id, { schemeOpen: open })}
             onAskTutorAbout={onAskTutorAbout}
+            onAskClaPart={onAskClaPart}
           />
         </div>
       ))}
@@ -1288,6 +1369,7 @@ function PartFlowSection({
   onRetry,
   onSetSchemeOpen,
   onAskTutorAbout,
+  onAskClaPart,
 }: {
   part: StudentQuestionView;
   /** single-row questions keep the help panel in its session-119 position
@@ -1302,6 +1384,8 @@ function PartFlowSection({
   onRetry: () => void;
   onSetSchemeOpen: (open: boolean) => void;
   onAskTutorAbout?: (draft: string) => void;
+  /** per-part CLA entry (s129) */
+  onAskClaPart?: (targetId: string) => void;
 }) {
   const isStructured = part.type === "STRUCTURED";
   const partViews = part.parts ?? [];
@@ -1333,6 +1417,7 @@ function PartFlowSection({
             error={flow.error}
             onSend={onSend}
             onSmartMark={onSmartMark}
+            onAskClaPart={onAskClaPart}
           />
         ) : flow.mode === "smart" ? (
           <div className="space-y-4">
@@ -1737,6 +1822,7 @@ function StructuredAnswerInputs({
   error,
   onSend,
   onSmartMark,
+  onAskClaPart,
 }: {
   question: StudentQuestionView;
   partAnswers: Record<string, string>;
@@ -1750,6 +1836,9 @@ function StructuredAnswerInputs({
   error: string | null;
   onSend: () => void;
   onSmartMark: () => void;
+  /** per-part CLA entry (s129): each answer box's lightbulb opens the
+   *  question-anchored overlay with Approach aimed at that part */
+  onAskClaPart?: (targetId: string) => void;
 }) {
   const parts = question.parts ?? [];
   const multiPart = parts.length > 1;
@@ -1773,6 +1862,19 @@ function StructuredAnswerInputs({
               <span className="ml-auto text-xs text-muted-foreground">
                 {part.marks} mark{part.marks === 1 ? "" : "s"}
               </span>
+            )}
+            {onAskClaPart && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("size-6 text-muted-foreground hover:text-primary", !multiPart && "ml-auto")}
+                onClick={() => onAskClaPart(part.id)}
+                aria-haspopup="dialog"
+                aria-label={`Ask CLA for help with part ${part.label} — scaffolded, never the answer`}
+                title="Ask CLA — scaffolded help with this part, never the answer"
+              >
+                <Lightbulb className="size-3.5" aria-hidden />
+              </Button>
             )}
           </div>
           <PartProblem md={part.prompt} />
