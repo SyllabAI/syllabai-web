@@ -1,0 +1,47 @@
+name: Concept Graph Activate
+
+# T-C30 — operator-directed KG-tree applicability backfill activation.
+# T-C24 (core 3c1600c) merged the seed-side idempotent backfill; the retired
+# pilot monitor was the only actor that ever POSTed /activate, so prod's
+# seeded 4CH1 tree still carries null applicability (T-C28 sweep). This
+# workflow runs the sanctioned activation with the SAME pilot teacher secrets
+# the census, marking probes and V20 battery use, then verifies read-only via
+# the TEST monitor learner account. Idempotent: a second run writes 0
+# additional values (content-equality guard in ConceptGraphSeedService).
+# Honest output only: SeedSummary counts + applicability tallies, never
+# secrets; JSON snapshot uploaded as an artifact.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: concept-graph-activate
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Activate concept graph (seed backfill) and verify applicability
+        env:
+          BACKEND_URL: https://syllabai-core.onrender.com
+          TEACHER_EMAIL: ${{ secrets.PILOT_TEACHER_EMAIL }}
+          TEACHER_PASSWORD: ${{ secrets.PILOT_TEACHER_PASSWORD }}
+          MONITOR_EMAIL: ${{ secrets.PILOT_MONITOR_EMAIL }}
+          MONITOR_PASSWORD: ${{ secrets.PILOT_MONITOR_PASSWORD }}
+          PROBE_PATH: tc30-activation.json
+        run: python3 scripts/ops/tc30_concept_graph_activate.py
+
+      - name: Upload activation snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tc30-activation
+          path: tc30-activation.json
+          if-no-files-found: ignore
