@@ -69,6 +69,10 @@ export default function SyllabAiWorkbench() {
   // CLA transcript — same lifted-state rationale as the tutor transcript (tab
   // switches must not erase the conversation).
   const [claMessages, setClaMessages] = useState<ClaChatMessage[]>([]);
+  // the note-anchored CLA transcript (Revision Notes overlay) — separate from
+  // the assistant tab's thread; lifted here so it survives tab switches and
+  // clears when the note changes (RevisionNotesView owns that reset)
+  const [claNoteMessages, setClaNoteMessages] = useState<ClaChatMessage[]>([]);
   // T-033: next-best-action read model (nba-rules/v1) — refreshed together with
   // state + graph because attempts change the evidence it ranks from.
   const [recommendations, setRecommendations] = useState<NextBestActionsView | null>(null);
@@ -449,7 +453,11 @@ export default function SyllabAiWorkbench() {
             />
           </TabsContent>
           <TabsContent value="notes">
-            <RevisionNotesView />
+            <RevisionNotesView
+              rootId={rootId}
+              claMessages={claNoteMessages}
+              setClaMessages={setClaNoteMessages}
+            />
           </TabsContent>
           <TabsContent value="tutor">
             <TutorChatView

@@ -15,7 +15,12 @@ The frontend has grown well beyond the original Wave 0 three-view workbench
   self-doubt flag / timed-mode telemetry (Paper B §3.5 / §16), Mastery map
   (BKT with Ebbinghaus decay + remediation chains), My state (BKT/BDT +
   review queue), Dashboard, History, Next-best actions, Smart Lesson,
-  Tutor chat, Past Papers browser, Knowledge Graph view.
+  Tutor chat, Past Papers browser, Knowledge Graph view, Revision Notes
+  (SME-style corpus reader with progress rings) carrying the note-anchored
+  CLA overlay — Definitions / Summary / Pitfalls / Exam help quick actions
+  over the same `cla/ask` contract as the Assistant tab, SPECIFICATION_POINT
+  anchored to the note's spec codes (EXPLAIN/SUMMARIZE; HINT/CHECK stay
+  question-context modes for the later exam-question CLA lane).
 - **Teacher side** — Teacher Review, Test Builder (marks UI), Teacher Content,
   Class Intelligence and Concept Graph views.
 - **Ops & verification** — `scripts/ops/v20_battery.py` +

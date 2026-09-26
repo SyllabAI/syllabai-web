@@ -14,7 +14,7 @@
  * - progress: opening a note marks it viewed (backend-backed, idempotent) —
  *   the same model as SME's localStorage counter but per-account persistent.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -33,6 +33,8 @@ import type {
   RevisionNoteBodyView,
   RevisionNotesIndexView,
 } from "@/lib/types";
+import { NoteClaOverlay } from "@/components/syllabai/NoteClaOverlay";
+import type { ClaChatMessage } from "@/components/syllabai/ClaAssistantView";
 import {
   BookOpen,
   CheckCircle2,
@@ -40,6 +42,7 @@ import {
   ChevronRight,
   FileText,
   LayoutGrid,
+  Sparkles,
 } from "lucide-react";
 
 /** SME-style 24px donut: viewed notes ÷ total notes for one subtopic. */
@@ -100,7 +103,17 @@ function neighborTitle(
   return at >= 0 ? flat[at + offset]?.title ?? null : null;
 }
 
-export function RevisionNotesView() {
+export function RevisionNotesView({
+  rootId = null,
+  claMessages,
+  setClaMessages,
+}: {
+  /** the subject root — scopes the CLA's server-side spec-point resolution */
+  rootId?: string | null;
+  /** the note-anchored CLA transcript, lifted so it survives tab switches */
+  claMessages: ClaChatMessage[];
+  setClaMessages: Dispatch<SetStateAction<ClaChatMessage[]>>;
+}) {
   const [index, setIndex] = useState<RevisionNotesIndexView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +122,7 @@ export function RevisionNotesView() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [body, setBody] = useState<RevisionNoteBodyView | null>(null);
   const [bodyLoading, setBodyLoading] = useState(false);
+  const [claOpen, setClaOpen] = useState(false);
 
   // noteId → viewedAt; seeded from the index, updated optimistically on open
   const [viewed, setViewed] = useState<Map<string, string>>(new Map());
@@ -153,6 +167,10 @@ export function RevisionNotesView() {
     async (noteId: string, target: { topicOrder: number; key: string } | null) => {
       setSelectedNoteId(noteId);
       setViewMode("reader");
+      // the CLA transcript is note-anchored: switching notes must never leave
+      // the previous note's answers readable as this note's — clear here (the
+      // single place selectedNoteId changes), not in an effect
+      setClaMessages([]);
       if (target) {
         setOpenTopics(new Set([target.topicOrder]));
         setOpenSubs(new Set([target.key]));
@@ -177,7 +195,8 @@ export function RevisionNotesView() {
         setBodyLoading(false);
       }
     },
-    [viewed],
+    // setClaMessages is a stable setState — listed for exhaustive-deps only
+    [viewed, setClaMessages],
   );
 
   if (loading) {
@@ -456,6 +475,7 @@ export function RevisionNotesView() {
             <Skeleton className="h-40 w-full" />
           </div>
         ) : body && location ? (
+          <>
           <article className="rounded-lg border bg-card">
             <div className="border-b px-5 py-4">
               <p className="text-xs text-muted-foreground">
@@ -471,11 +491,23 @@ export function RevisionNotesView() {
                     {code}
                   </Badge>
                 ))}
-                {viewed.has(body.noteId) && (
-                  <span className="ms-auto inline-flex items-center gap-1 text-xs text-emerald-600">
-                    <CheckCircle2 className="size-3.5" /> Read
-                  </span>
-                )}
+                <span className="ms-auto flex items-center gap-2">
+                  {viewed.has(body.noteId) && (
+                    <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                      <CheckCircle2 className="size-3.5" /> Read
+                    </span>
+                  )}
+                  {/* the contextual assistant opens over this note (CLA);
+                      the floating button below opens the same panel */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1.5 px-2.5 text-xs"
+                    onClick={() => setClaOpen(true)}
+                  >
+                    <Sparkles className="size-3.5" aria-hidden /> Ask CLA
+                  </Button>
+                </span>
               </div>
             </div>
             <div className="prose prose-sm dark:prose-invert max-w-none px-5 py-4">
@@ -530,6 +562,19 @@ export function RevisionNotesView() {
               )}
             </div>
           </article>
+          {/* the note-anchored CLA overlay — same production contract as the
+              assistant tab, SPECIFICATION_POINT-anchored to this note */}
+          <NoteClaOverlay
+            open={claOpen}
+            onOpenChange={setClaOpen}
+            rootId={rootId}
+            noteTitle={body.title}
+            subtopicTitle={location.sub.title}
+            specPointCodes={location.note.specPointCodes}
+            messages={claMessages}
+            setMessages={setClaMessages}
+          />
+          </>
         ) : (
           <Alert>
             <AlertTitle>Note unavailable</AlertTitle>

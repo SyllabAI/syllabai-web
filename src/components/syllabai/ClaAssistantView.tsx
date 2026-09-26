@@ -84,7 +84,7 @@ function parseMarkers(answer: string): { text: string; marker: number | null }[]
   return parts;
 }
 
-function AnswerBody({ result }: { result: ClaAnswerView }) {
+export function AnswerBody({ result }: { result: ClaAnswerView }) {
   const citationIds = useMemo(
     () => new Set(result.citations.map((c) => c.index)),
     [result],
@@ -139,7 +139,7 @@ function AnswerBody({ result }: { result: ClaAnswerView }) {
   );
 }
 
-function MetaRow({ result }: { result: ClaAnswerView }) {
+export function MetaRow({ result }: { result: ClaAnswerView }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
       <span>
