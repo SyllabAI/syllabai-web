@@ -151,6 +151,22 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Honest degradation for AI-ask failures (session-136): when the backend's
+ * LLM failover chain has no working provider (exhausted quota/credits, dead
+ * key), every ask surfaces as a bare 500 "an internal error occurred" — a
+ * string that tells a learner nothing. This maps 5xx asks to what is
+ * actually true: AI generation is down server-side; everything else keeps
+ * working. 4xx keeps the server's own message — those are honest by design
+ * (404 unresolvable spec point, 409 attempt_required, 400 validation).
+ */
+export function aiAskErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError && err.status >= 500) {
+    return "AI answers are temporarily unavailable on the server — your notes, practice and history all keep working. Please try asking again in a little while.";
+  }
+  return err instanceof ApiError && err.message ? err.message : fallback;
+}
+
 // ── backend-waking signals ─────────────────────────────────────────────
 // A request >3 s with no success in the last 60 s is almost certainly a
 // Render cold boot (or a network hiccup pretending to be one). The page

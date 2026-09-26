@@ -34,7 +34,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AlertTriangle, ExternalLink, GraduationCap, Quote, RotateCcw, Send } from "lucide-react";
-import { ApiError, api, apiPath, currentUser } from "@/lib/api";
+import { aiAskErrorMessage, api, apiPath, currentUser } from "@/lib/api";
 import type { TutorAnswerView, TutorCitation } from "@/lib/types";
 
 const MAX_QUESTION_CHARS = 2000; // mirrors the backend @Size(max = 2000)
@@ -123,10 +123,12 @@ export function TutorChatView({
       const result = await api.tutorAsk(trimmed);
       setMessages((prev) => [...prev, { kind: "assistant", result, at: Date.now() }]);
     } catch (err) {
-      const text =
-        err instanceof ApiError
-          ? err.message
-          : "The tutor could not be reached. Check your connection and try again.";
+      // 5xx = the backend LLM chain has no working provider — honest
+      // degradation, not the opaque "an internal error occurred" (s136)
+      const text = aiAskErrorMessage(
+        err,
+        "The tutor could not be reached. Check your connection and try again.",
+      );
       setMessages((prev) => [...prev, { kind: "error", text, question: trimmed, at: Date.now() }]);
     } finally {
       setSending(false);

@@ -53,7 +53,7 @@ import {
   TriangleAlert,
   Wrench,
 } from "lucide-react";
-import { ApiError, api } from "@/lib/api";
+import { ApiError, aiAskErrorMessage, api } from "@/lib/api";
 import type { ClaMode } from "@/lib/types";
 import {
   AnswerBody,
@@ -167,12 +167,12 @@ export function NoteClaOverlay({
         // surface never sends HINT/CHECK, but the branch keeps the semantics)
         setMessages((m) => [...m, { kind: "gate", text: e.message, at: Date.now() }]);
       } else {
+        // 404 keeps its specific guidance (unresolvable spec point); 5xx maps
+        // to the honest AI-unavailable message (s136)
         const msg =
           e instanceof ApiError && e.status === 404
             ? "The server could not resolve this note's spec point in your subject — it may not be validated yet. Try another anchor code, or ask on the assistant tab."
-            : e instanceof ApiError
-              ? e.message
-              : "Request failed";
+            : aiAskErrorMessage(e, "Request failed");
         setMessages((m) => [
           ...m,
           { kind: "error", text: msg, question: text, at: Date.now() },

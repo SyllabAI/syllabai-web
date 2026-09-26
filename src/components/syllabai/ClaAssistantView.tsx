@@ -46,7 +46,7 @@ import {
   Send,
   Wrench,
 } from "lucide-react";
-import { ApiError, api } from "@/lib/api";
+import { ApiError, aiAskErrorMessage, api } from "@/lib/api";
 import type { ClaAnswerView, ClaMode, StudentQuestionView } from "@/lib/types";
 
 const MAX_QUESTION_CHARS = 2000; // mirrors the backend @Size(max = 2000)
@@ -255,7 +255,9 @@ export function ClaAssistantView({
         // the §7 answer-leakage gate — guidance, not error
         setMessages((m) => [...m, { kind: "gate", text: e.message, at: Date.now() }]);
       } else {
-        const msg = e instanceof ApiError ? e.message : "Request failed";
+        // 5xx = the backend LLM chain has no working provider — honest
+        // degradation, not the opaque "an internal error occurred" (s136)
+        const msg = aiAskErrorMessage(e, "Request failed");
         setMessages((m) => [...m, { kind: "error", text: msg, question: text, at: Date.now() }]);
       }
     } finally {
