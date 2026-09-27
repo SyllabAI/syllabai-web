@@ -15,14 +15,22 @@
  * (Exam Hint / Worked Example / Case Study / Top Tip / Spec point) are
  * ported from the syllabai-demo Markdown component so both surfaces render
  * the corpus identically.
+ *
+ * s142: renders MODEL output too (Smart Mark explanations, question help),
+ * so it swaps upstream rehype-katex for the local rehypeKatexMhchem
+ * (\ce{} chemistry renders — the upstream plugin could hold a different
+ * katex instance than the mhchem registration) and normalizes GLM delimiter
+ * drift through the same mathNormalize the chat surfaces use. Curated
+ * corpus content never carries the drift shapes, so it passes untouched.
  */
 
 import { useEffect, useState, type ComponentPropsWithoutRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
+import { rehypeKatexMhchem } from "@/lib/rehypeKatexMhchem";
+import { normalizeMathDelimiters } from "@/lib/mathNormalize";
 import "katex/dist/katex.min.css";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchQuestionAsset } from "@/lib/api";
@@ -33,7 +41,7 @@ export function QuestionMarkdown({ children }: { children: string }) {
     <div className="prose-sm max-w-none space-y-3 break-words leading-relaxed [&_.katex]:text-[1.05em] [&_sub]:text-[0.75em] [&_sup]:text-[0.75em]">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[[rehypeRaw], [rehypeKatex, { throwOnError: false, strict: false }]]}
+        rehypePlugins={[[rehypeRaw], [rehypeKatexMhchem, { strict: false }]]}
         components={{
           h1: ({ children }) => (
             <h2 className="mt-5 border-b pb-1 text-lg font-bold">{children}</h2>
@@ -123,7 +131,7 @@ export function QuestionMarkdown({ children }: { children: string }) {
           ),
         }}
       >
-        {children}
+        {normalizeMathDelimiters(children)}
       </ReactMarkdown>
     </div>
   );

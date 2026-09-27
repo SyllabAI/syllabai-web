@@ -7,9 +7,13 @@
  * text, so the model's markdown (**bold**, bullets, tables) and LaTeX showed
  * raw.
  *
- * Pipeline: GFM + remark-math + rehype-katex (mhchem registered — \ce{}
- * chemistry renders) + remark-breaks (single newlines are line breaks in
- * chat, not paragraph merges). Deliberately NO rehype-raw: model output is
+ * Pipeline: GFM + remark-math + rehype-katex-mhchem (the s142 LOCAL katex
+ * renderer — the upstream rehype-katex could land on a different katex
+ * module instance than `katex/contrib/mhchem` registers on, which rendered
+ * every \ce{} as red error text; the local plugin imports both side by side
+ * so renderer and macro registration share one instance everywhere) +
+ * remark-breaks (single newlines are line breaks in chat, not paragraph
+ * merges). Deliberately NO rehype-raw: model output is
  * not corpus content, raw HTML stays escaped (prompt v3 forbids HTML tags;
  * LaTeX is the sub/superscript path).
  *
@@ -18,24 +22,21 @@
  * construct (bold, lists, tables) instead of the old pre-markdown string
  * split, and each surface keeps its own chip via `renderCitation`.
  *
- * GLM-side delimiter drift is normalized defensively (the prompt pins
- * $…$/$$…$$, old transcripts and cold models still drift):
- * - \(…\)        → $…$          (unambiguous, always)
- * - \[…\]        → $$…$$        (only when the body looks like LaTeX)
- * - bare \ce{…}  → $\ce{…}$     (outside math, never double-wrapped)
+ * GLM-side delimiter drift is normalized defensively BEFORE parsing
+ * (src/lib/mathNormalize.ts, s142): \(…\)/\[…] conversion, bare and
+ * braceless \ce, price-pair dollars, and leaked formula bodies (e.g.
+ * `\%\,$\ce{O2}$= \frac{…}{…}\times100` — the $ closed early) wrap as
+ * one math run so nothing renders raw.
  */
 
 import { useMemo, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkBreaks from "remark-breaks";
-import rehypeKatex from "rehype-katex";
+import { rehypeKatexMhchem } from "@/lib/rehypeKatexMhchem";
+import { normalizeMathDelimiters } from "@/lib/mathNormalize";
 import "katex/dist/katex.min.css";
-// side-effect: registers the \ce{} macro on the shared KaTeX instance that
-// rehype-katex renders through (bundled inside the existing katex package —
-// no extra dependency)
-import "katex/contrib/mhchem";
 import { cn } from "@/lib/utils";
 
 // ── citation markers: [n] / 【n】, 1–3 digits (a [2025] stays plain text) ──
@@ -97,25 +98,13 @@ export function remarkCitations() {
 
 // module-level identities: react-markdown re-parses when plugin identity changes
 const REMARK_PLUGINS = [remarkGfm, remarkMath, remarkCitations, remarkBreaks];
-const REHYPE_PLUGINS = [[rehypeKatex, { throwOnError: false, strict: false }]];
+const REHYPE_PLUGINS = [[rehypeKatexMhchem, { strict: false }]];
 
-// ── delimiter normalization (see header) ─────────────────────────────────
-
-const LATEXISH = /[\\^_{}]/; // \frac, x^2, H_2, {…} — an escaped literal never has these
-
-export function normalizeMathDelimiters(answer: string): string {
-  return answer
-    // \( … \) → $ … $  (inline; \( never occurs in prose)
-    .replace(/\\\(([\s\S]+?)\\\)/g, (_m, tex: string) => `$${tex}$`)
-    // \[ … \] → $$ … $$  (display; only when the body looks like LaTeX, so
-    // the escaped literal \[1\] stays a literal)
-    .replace(/\\\[([\s\S]+?)\\\]/g, (m, tex: string) =>
-      LATEXISH.test(tex) ? `$$${tex}$$` : m,
-    )
-    // bare \ce{…} → $\ce{…}$  (outside math delimiters; the lookbehind/
-    // lookahead keep an already-delimited $\ce{…}$ untouched)
-    .replace(/(?<![$\\])\\ce\{([^}]*)\}(?!\$)/g, (_m, tex: string) => `$\\ce{${tex}}$`);
-}
+// react-markdown's default sanitizer strips every non-http(s) scheme — the
+// citation:// links must survive it to reach the `a` component override
+// (an s138 regression: chips rendered as dead <a href=""> links)
+const URL_TRANSFORM = (url: string) =>
+  url.startsWith("citation://") ? url : defaultUrlTransform(url);
 
 export function ChatMarkdown({
   children,
@@ -141,6 +130,7 @@ export function ChatMarkdown({
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={REHYPE_PLUGINS as never}
+        urlTransform={URL_TRANSFORM}
         components={{
           p: ({ children }) => <p className="leading-relaxed">{children}</p>,
           ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
