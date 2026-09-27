@@ -82,6 +82,7 @@ import type {
   TutorAnswerView,
   TutorHistoryTurn,
   TutorSessionCreated,
+  TutorSessionSummary,
   TutorSessionView,
   RevisionNoteBodyView,
   RevisionNotesIndexView,
@@ -518,6 +519,18 @@ export const api = {
 
   tutorSessionGet: (sessionId: string) =>
     request<TutorSessionView>(`/api/v1/tutor/sessions/${encodeURIComponent(sessionId)}`),
+
+  // s143 conversation management: the learner's chats by recency (title +
+  // turn count summaries — transcripts stay a per-chat fetch), and delete
+  // for their own chat. A foreign/deleted id 404s server-side like an
+  // unknown one.
+  tutorSessionList: () =>
+    request<TutorSessionSummary[]>("/api/v1/tutor/sessions"),
+
+  tutorSessionDelete: (sessionId: string) =>
+    request<void>(`/api/v1/tutor/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+    }),
 
   // CLA (contract §2–§7): the context + mode are explicit and server-resolved
   // (fail-closed 404 on anything unvalidated/foreign); CHECK pre-attempt is a

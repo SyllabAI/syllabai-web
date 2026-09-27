@@ -34,9 +34,24 @@
  * - Model/provider/latency/evidence-count are shown with every answer
  *   (research traceability, Master Spec §19). Restored (hydrated) turns keep
  *   the same footer fields; their citations stay in the research telemetry.
+ * - s143 conversation management: the Conversations pane lists the learner's
+ *   §22 server-side chats (most recent first, titled by their opening
+ *   question) — click one to resume it, delete it when done, or start a New
+ *   chat. The transcript always follows the server: switching away and back
+ *   loses nothing, because every completed ask is persisted.
  */
 
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -44,9 +59,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { AlertTriangle, ExternalLink, GraduationCap, History, MessageSquarePlus, Quote, RotateCcw, Send } from "lucide-react";
+import { AlertTriangle, ExternalLink, GraduationCap, History, MessageSquarePlus, Quote, RotateCcw, Send, Trash2 } from "lucide-react";
 import { aiAskErrorMessage, api, apiPath, currentUser } from "@/lib/api";
-import type { TutorAnswerView, TutorCitation, TutorHistoryTurn, TutorSessionTurnView } from "@/lib/types";
+import { formatRelative } from "@/lib/format";
+import type { TutorAnswerView, TutorCitation, TutorHistoryTurn, TutorSessionSummary, TutorSessionTurnView } from "@/lib/types";
 import { ChatMarkdown } from "@/components/syllabai/ChatMarkdown";
 
 const MAX_QUESTION_CHARS = 2000; // mirrors the backend @Size(max = 2000)
@@ -149,6 +165,21 @@ function restoredAt(iso: string): string {
   return ` · ${at.toLocaleDateString()}`;
 }
 
+/**
+ * The list-pane label for a conversation (s143): the server-derived title
+ * (the opening question), or an honest "Empty conversation" for a chat that
+ * was created but never completed an ask. Exported pure — see
+ * scripts/s143_conversation_list_verify.ts.
+ */
+export function conversationTitle(summary: TutorSessionSummary): string {
+  return summary.title?.trim() || "Empty conversation";
+}
+
+/** The list-pane "how much was said" label (s143): stored turn rows. */
+export function turnsLabel(turnCount: number): string {
+  return turnCount === 1 ? "1 turn" : `${turnCount} turns`;
+}
+
 export function TutorChatView({
   messages,
   setMessages,
@@ -168,6 +199,18 @@ export function TutorChatView({
   // s140: shown above a hydrated transcript so "where did this come from"
   // has an honest answer
   const [restoredFrom, setRestoredFrom] = useState<string | null>(null);
+  // s143 conversation pane: the learner's server-side chats (null = still
+  // loading; a failed load shows an honest inline error, never a blank pane)
+  const [conversations, setConversations] = useState<TutorSessionSummary[] | null>(null);
+  const [conversationsError, setConversationsError] = useState<string | null>(null);
+  // the §22 session the CURRENT transcript is anchored to (state twin of
+  // sessionIdRef — the ref keeps closures fresh, this drives the highlight)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // one conversation is being opened (fetching its transcript)
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  // the conversation awaiting delete confirmation (AlertDialog target)
+  const [deleteTarget, setDeleteTarget] = useState<TutorSessionSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
   // In-flight guard via ref: the state flag alone is stale inside the closure
   // until re-render, so a fast double-Enter could fire two tutor calls.
@@ -202,6 +245,7 @@ export function TutorChatView({
         // without this the next ask lazily created a NEW session and forked
         // the chat (restored turns in one session, new exchanges in another)
         sessionIdRef.current = stored;
+        setActiveSessionId(stored);
         setMessages(session.turns.map(restoredMessage));
         setRestoredFrom(session.lastActiveAt);
       })
@@ -217,6 +261,25 @@ export function TutorChatView({
     // bootstrap, not a reaction to transcript changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // s143: the conversation pane's source of truth is the server — one small
+  // summary GET on mount, refreshed after every completed ask (a new chat
+  // appears, the active one re-titles and re-dates) and after a delete. The
+  // single-flight GET dedup absorbs StrictMode's double mount.
+  const refreshConversations = useCallback(async () => {
+    try {
+      const list = await api.tutorSessionList();
+      setConversations(list);
+      setConversationsError(null);
+    } catch (err) {
+      // the pane degrades honestly — the chat itself keeps working
+      setConversationsError(err instanceof Error ? err.message : "unavailable");
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshConversations();
+  }, [refreshConversations]);
 
   // A draft arriving from another surface fills the input (the student stays
   // in control — they can edit or clear it before asking).
@@ -254,6 +317,7 @@ export function TutorChatView({
         try {
           const created = await api.tutorSessionCreate();
           sessionIdRef.current = created.sessionId;
+          setActiveSessionId(created.sessionId);
           window.localStorage.setItem(SESSION_STORAGE_KEY, created.sessionId);
         } catch {
           sessionIdRef.current = null;
@@ -272,6 +336,10 @@ export function TutorChatView({
     } finally {
       setSending(false);
       sendingRef.current = false;
+      // s143: every completed attempt may have changed the server list (a
+      // brand-new chat, a re-dated active one — even a failed first ask can
+      // leave an honestly-empty row the learner can see and delete)
+      refreshConversations();
     }
   }
 
@@ -283,7 +351,64 @@ export function TutorChatView({
     setMessages([]);
     setRestoredFrom(null);
     sessionIdRef.current = null;
+    setActiveSessionId(null);
     window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  }
+
+  // s143: resume a past conversation — the transcript comes from the server
+  // (every completed ask was persisted), so switching away and back loses
+  // nothing. Unsent input is kept: the student stays in control of their
+  // half-typed question. Error bubbles don't survive the switch — they are UI
+  // chrome, not conversation (the s139 decision, applied to switching).
+  async function openConversation(summary: TutorSessionSummary) {
+    if (sendingRef.current || summary.sessionId === activeSessionId) return;
+    setOpeningId(summary.sessionId);
+    try {
+      const session = await api.tutorSessionGet(summary.sessionId);
+      sessionIdRef.current = summary.sessionId;
+      setActiveSessionId(summary.sessionId);
+      window.localStorage.setItem(SESSION_STORAGE_KEY, summary.sessionId);
+      setMessages(session.turns.map(restoredMessage));
+      setRestoredFrom(session.lastActiveAt);
+    } catch {
+      // deleted on another device / foreign id — drop it from the pane
+      // honestly; the transcript stays whatever it currently is
+      setConversations((prev) =>
+        prev ? prev.filter((c) => c.sessionId !== summary.sessionId) : prev,
+      );
+    } finally {
+      setOpeningId(null);
+    }
+  }
+
+  // s143: delete a conversation — §20 data minimization, the learner's own
+  // transcript, their call. Deleting the ACTIVE chat starts a fresh one.
+  async function confirmDelete() {
+    const target = deleteTarget;
+    if (!target || deleting) return;
+    setDeleting(true);
+    try {
+      await api.tutorSessionDelete(target.sessionId);
+      setConversations((prev) =>
+        prev ? prev.filter((c) => c.sessionId !== target.sessionId) : prev,
+      );
+      if (target.sessionId === activeSessionId) {
+        setMessages([]);
+        setRestoredFrom(null);
+        sessionIdRef.current = null;
+        setActiveSessionId(null);
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+      setDeleteTarget(null);
+    } catch (err) {
+      // keep the pane honest: the delete failed, the chat is still there
+      setConversationsError(
+        err instanceof Error ? err.message : "Could not delete — try again.",
+      );
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function jumpToCitation(messageIndex: number, citation: TutorCitation) {
@@ -331,14 +456,90 @@ export function TutorChatView({
         </CardContent>
       </Card>
 
-      <div className="rounded-lg border bg-background">
+      {/* s143: ChatGPT-style two-pane layout — the Conversations pane
+          (server-owned list of the learner's §22 chats) beside the chat
+          itself. Stacks above the chat on narrow screens, same as the
+          Exam Questions sidebar. */}
+      <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside
+          className="space-y-3 rounded-lg border bg-background p-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto"
+          aria-label="Your conversations"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+              <History className="size-3.5" aria-hidden="true" />
+              Conversations
+            </p>
+            {conversations && conversations.length > 0 && (
+              <span className="text-[10px] tabular-nums text-muted-foreground">
+                {conversations.length}
+              </span>
+            )}
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-start gap-1.5"
+            onClick={newChat}
+            disabled={sending}
+          >
+            <MessageSquarePlus className="size-3.5" aria-hidden="true" />
+            New chat
+          </Button>
+
+          {/* the chat being composed right now (no §22 session yet) — pinned
+              at the top like every AI chat app's "New conversation" entry */}
+          {activeSessionId === null && (
+            <div className="rounded-md border border-dashed border-primary/50 bg-primary/5 px-2.5 py-2">
+              <p className="truncate text-xs font-medium">New conversation</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                your next question starts it
+              </p>
+            </div>
+          )}
+
+          {conversationsError && (
+            <p className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 text-[11px] text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
+              Couldn’t load your conversations — {conversationsError}. The chat itself keeps
+              working.
+            </p>
+          )}
+
+          {conversations === null && !conversationsError && (
+            <p className="px-1 text-[11px] text-muted-foreground">
+              Loading your conversations…
+            </p>
+          )}
+
+          {conversations !== null && conversations.length === 0 && !conversationsError && (
+            <p className="px-1 text-[11px] text-muted-foreground">
+              No past conversations yet — your chats will appear here.
+            </p>
+          )}
+
+          <div className="space-y-1.5">
+            {(conversations ?? []).map((summary) => (
+              <ConversationRow
+                key={summary.sessionId}
+                summary={summary}
+                active={summary.sessionId === activeSessionId}
+                opening={openingId === summary.sessionId}
+                disabled={sending}
+                onOpen={() => openConversation(summary)}
+                onDelete={() => setDeleteTarget(summary)}
+              />
+            ))}
+          </div>
+        </aside>
+
+        <div className="rounded-lg border bg-background">
         <ScrollArea className="h-[52vh] min-h-80">
           <div ref={transcriptRef} className="flex flex-col gap-4 p-4" aria-live="polite">
             {restoredFrom && messages.length > 0 && (
               <div className="flex items-center gap-1.5 self-center text-[11px] text-muted-foreground">
                 <History className="size-3" aria-hidden="true" />
-                Picked up from your last conversation
-                {restoredAt(restoredFrom)}
+                Resuming this conversation{restoredAt(restoredFrom)}
               </div>
             )}
             {messages.length === 0 && (
@@ -465,7 +666,101 @@ export function TutorChatView({
             </span>
           </div>
         </div>
+        </div>
       </div>
+
+      {/* s143: delete confirmation — destructive and irreversible, so it
+          never fires off a bare icon tap */}
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this conversation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{deleteTarget ? conversationTitle(deleteTarget) : ""}” and its whole
+              transcript will be removed from your account. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void confirmDelete()}
+              disabled={deleting}
+              className="bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-600"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+/** One clickable conversation in the s143 pane: derived title (or the honest
+ *  “Empty conversation”), recency + turn count, active highlight, and a
+ *  delete affordance that asks before it destroys. */
+function ConversationRow({
+  summary,
+  active,
+  opening,
+  disabled,
+  onOpen,
+  onDelete,
+}: {
+  summary: TutorSessionSummary;
+  active: boolean;
+  opening: boolean;
+  disabled: boolean;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
+  const title = conversationTitle(summary);
+  return (
+    <div
+      className={
+        "flex items-start gap-1 rounded-md border px-2 py-1.5 transition-colors " +
+        (active
+          ? "border-primary bg-primary/10"
+          : "border-transparent bg-background hover:bg-muted/60")
+      }
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={disabled || opening}
+        aria-current={active ? "true" : undefined}
+        className="min-w-0 flex-1 text-left disabled:opacity-60"
+        title={title}
+      >
+        <span
+          className={
+            "block truncate text-xs font-medium " +
+            (summary.title ? "" : "italic text-muted-foreground")
+          }
+        >
+          {title}
+        </span>
+        <span className="mt-0.5 block text-[10px] text-muted-foreground">
+          {opening
+            ? "opening…"
+            : `${formatRelative(summary.lastActiveAt)} · ${turnsLabel(summary.turnCount)}`}
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={disabled}
+        aria-label={`Delete conversation: ${title}`}
+        title="Delete this conversation"
+        className="shrink-0 rounded p-1 text-muted-foreground/70 transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950 dark:hover:text-rose-400"
+      >
+        <Trash2 className="size-3.5" aria-hidden="true" />
+      </button>
     </div>
   );
 }

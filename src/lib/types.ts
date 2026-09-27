@@ -384,6 +384,20 @@ export interface TutorSessionCreated {
   createdAt: string;
 }
 
+/**
+ * One row of GET /api/v1/tutor/sessions (s143) — the learner's conversation
+ * list, most recently active first. The title is derived server-side from
+ * the opening question (null = an empty chat); the transcript itself is a
+ * separate per-conversation fetch.
+ */
+export interface TutorSessionSummary {
+  sessionId: string;
+  createdAt: string;
+  lastActiveAt: string;
+  turnCount: number;
+  title: string | null;
+}
+
 // ── Personalized knowledge graph (T-028, mirrors the F-034 backend DTOs) ──
 
 /** KG node + THIS learner's annotations (null = honest "not practised / no signal"). */
