@@ -198,6 +198,10 @@ export function TutorChatView({
       .tutorSessionGet(stored)
       .then((session) => {
         if (cancelled || session.turns.length === 0) return;
+        // s141: reattach the session anchor, not just the transcript —
+        // without this the next ask lazily created a NEW session and forked
+        // the chat (restored turns in one session, new exchanges in another)
+        sessionIdRef.current = stored;
         setMessages(session.turns.map(restoredMessage));
         setRestoredFrom(session.lastActiveAt);
       })
