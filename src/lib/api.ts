@@ -80,6 +80,7 @@ import type {
   TestPreviewView,
   WeaknessOptionsView,
   TutorAnswerView,
+  TutorHistoryTurn,
   RevisionNoteBodyView,
   RevisionNotesIndexView,
   MarkSchemeRevealView,
@@ -492,10 +493,13 @@ export const api = {
       `/api/v1/learners/me/smart-lesson?rootId=${encodeURIComponent(rootId)}&topicNodeId=${encodeURIComponent(topicNodeId)}`,
     ),
 
-  tutorAsk: (question: string) =>
+  // s139 working memory: the chat's prior turns ride the ask (client-held,
+  // capped at the last 8 here — the server re-sanitizes at 12). Omitted/
+  // empty behaves exactly like the pre-s139 single-turn ask.
+  tutorAsk: (question: string, history?: TutorHistoryTurn[]) =>
     request<TutorAnswerView>("/api/v1/tutor/ask", {
       method: "POST",
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, history: history ?? [] }),
     }),
 
   // CLA (contract §2–§7): the context + mode are explicit and server-resolved

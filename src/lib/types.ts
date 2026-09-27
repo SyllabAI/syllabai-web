@@ -342,6 +342,17 @@ export interface TutorAnswerView {
   latencyMs: number;
 }
 
+/**
+ * One prior chat turn sent back with a follow-up ask (s139 working memory).
+ * The transcript stays client-held: it rides the request, the backend never
+ * persists it, and the server sanitizes it (role whitelist, marker strip,
+ * turn/list caps) before it reaches retrieval or the prompt.
+ */
+export interface TutorHistoryTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
 // ── Personalized knowledge graph (T-028, mirrors the F-034 backend DTOs) ──
 
 /** KG node + THIS learner's annotations (null = honest "not practised / no signal"). */

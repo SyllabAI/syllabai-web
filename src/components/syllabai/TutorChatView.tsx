@@ -10,8 +10,13 @@
  * verbatim source label (e.g. "Mark scheme — p6", "Specification topic …").
  *
  * v0 scope decisions (documented, not silent):
- * - The transcript lives in React state lifted to the page (survives tab
- *   switches). Server-side session persistence arrives with the Spec §22
+ * - Working memory (s139): the transcript lives in React state lifted to the
+ *   page (survives tab switches) and is sent back with each ask as a bounded
+ *   `history` — the tutor answers follow-ups ("why is that?", "the second
+ *   point") because retrieval is enriched with the recent turns and the
+ *   prompt carries the conversation. Refresh still forgets, by design: this
+ *   is working memory, not the (rejected) cross-session transcript store;
+ *   server-side session persistence arrives with the Spec §22
  *   `tutor/sessions` endpoints — not invented here.
  * - A draft question can arrive from practice ("Ask tutor about this") —
  *   it only pre-fills the input; the student edits and sends it themselves.
@@ -33,12 +38,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { AlertTriangle, ExternalLink, GraduationCap, Quote, RotateCcw, Send } from "lucide-react";
+import { AlertTriangle, ExternalLink, GraduationCap, MessageSquarePlus, Quote, RotateCcw, Send } from "lucide-react";
 import { aiAskErrorMessage, api, apiPath, currentUser } from "@/lib/api";
-import type { TutorAnswerView, TutorCitation } from "@/lib/types";
+import type { TutorAnswerView, TutorCitation, TutorHistoryTurn } from "@/lib/types";
 import { ChatMarkdown } from "@/components/syllabai/ChatMarkdown";
 
 const MAX_QUESTION_CHARS = 2000; // mirrors the backend @Size(max = 2000)
+
+/** Client-side working-memory cap — below the server's 12-turn re-sanitize
+ *  bound, so the request always passes validation as-is. */
+const MAX_HISTORY_TURNS_SENT = 8;
 
 export type TutorChatMessage =
   | { kind: "user"; text: string; at: number }
@@ -54,6 +63,43 @@ const SUGGESTED_QUESTIONS = [
 function isTeacherLike(): boolean {
   const roles = currentUser()?.roles ?? [];
   return roles.includes("TEACHER") || roles.includes("ADMIN");
+}
+
+/**
+ * The conversation as the backend's working memory wants it (s139):
+ * - user turns and assistant answers (refusals included — they are honest
+ *   tutor turns), error bubbles excluded (UI chrome, not conversation);
+ * - the trailing user turn matching THIS question is dropped: it is the
+ *   optimistic bubble of a failed ask being retried, and sending it twice
+ *   would duplicate the turn in the history;
+ * - capped to the most recent MAX_HISTORY_TURNS_SENT turns.
+ *
+ * Exported pure (module-level) so the retry/cap semantics are verifiable
+ * against the real module — see scripts/s139_tutor_history_verify.ts.
+ */
+export function historyFor(
+  messages: TutorChatMessage[],
+  question: string,
+): TutorHistoryTurn[] {
+  const transcript = [...messages];
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const message = transcript[i];
+    if (message.kind === "user") {
+      if (message.text === question) {
+        transcript.splice(i, 1);
+      }
+      break; // only the LAST user turn can be the retried duplicate
+    }
+  }
+  const turns: TutorHistoryTurn[] = [];
+  for (const message of transcript) {
+    if (message.kind === "user") {
+      turns.push({ role: "user", text: message.text });
+    } else if (message.kind === "assistant") {
+      turns.push({ role: "assistant", text: message.result.answer });
+    }
+  }
+  return turns.slice(-MAX_HISTORY_TURNS_SENT);
 }
 
 export function TutorChatView({
@@ -76,6 +122,11 @@ export function TutorChatView({
   // In-flight guard via ref: the state flag alone is stale inside the closure
   // until re-render, so a fast double-Enter could fire two tutor calls.
   const sendingRef = useRef(false);
+  // Live mirror of the transcript: send() must read the CURRENT conversation
+  // (state in a closure goes stale across renders) to build the history for
+  // the ask — retry buttons in particular fire with an older snapshot.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const teacher = isTeacherLike();
 
   // A draft arriving from another surface fills the input (the student stays
@@ -100,13 +151,14 @@ export function TutorChatView({
     if (!trimmed || trimmed.length > MAX_QUESTION_CHARS || sendingRef.current) return;
     sendingRef.current = true;
     setInput("");
+    const history = historyFor(messagesRef.current, trimmed);
     // Functional updates: append to the LIVE transcript, never rebuild from the
     // render-time snapshot — the old [...messages, ...] form dropped optimistic
     // bubbles and duplicated the user turn when retrying an error message.
     setMessages((prev) => [...prev, { kind: "user", text: trimmed, at: Date.now() }]);
     setSending(true);
     try {
-      const result = await api.tutorAsk(trimmed);
+      const result = await api.tutorAsk(trimmed, history);
       setMessages((prev) => [...prev, { kind: "assistant", result, at: Date.now() }]);
     } catch (err) {
       // 5xx = the backend LLM chain has no working provider — honest
@@ -134,13 +186,32 @@ export function TutorChatView({
     <div className="space-y-4">
       <Card>
         <CardContent className="flex flex-col gap-1 pt-6">
-          <div className="flex items-center gap-2">
-            <GraduationCap className="size-4 text-primary" aria-hidden="true" />
-            <p className="text-sm font-semibold">Ask the SyllabAI tutor</p>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <GraduationCap className="size-4 text-primary" aria-hidden="true" />
+              <p className="text-sm font-semibold">Ask the SyllabAI tutor</p>
+            </div>
+            {/* s139: with working memory, starting fresh needs an explicit
+                affordance — a stale conversation otherwise keeps enriching
+                retrieval with off-topic turns after a topic switch. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 px-2 text-xs text-muted-foreground"
+              onClick={() => setMessages([])}
+              disabled={sending || messages.length === 0}
+              aria-label="Start a new conversation (clears this chat)"
+              title="Start a new conversation (clears this chat)"
+            >
+              <MessageSquarePlus className="size-3.5" aria-hidden="true" />
+              New chat
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground">
             Grounded answers with verbatim citations from validated course content —
-            mark schemes, question papers and the specification.
+            mark schemes, question papers and the specification. The tutor remembers
+            this conversation while you stay in it, so you can ask follow-ups like
+            “why is that?”.
           </p>
         </CardContent>
       </Card>
