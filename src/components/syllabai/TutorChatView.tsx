@@ -25,7 +25,7 @@
  *   (research traceability, Master Spec §19).
  */
 
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { AlertTriangle, ExternalLink, GraduationCap, Quote, RotateCcw, Send } from "lucide-react";
 import { aiAskErrorMessage, api, apiPath, currentUser } from "@/lib/api";
 import type { TutorAnswerView, TutorCitation } from "@/lib/types";
+import { ChatMarkdown } from "@/components/syllabai/ChatMarkdown";
 
 const MAX_QUESTION_CHARS = 2000; // mirrors the backend @Size(max = 2000)
 
@@ -49,21 +50,6 @@ const SUGGESTED_QUESTIONS = [
   "What is the difference between ionic and covalent bonding?",
   "How do I balance a redox half-equation in acidic solution?",
 ];
-
-/** Split an answer into plain-text segments and [n] marker positions. */
-function parseMarkers(answer: string): { text: string; marker: number | null }[] {
-  const parts: { text: string; marker: number | null }[] = [];
-  const re = /\[(\d+)\]/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(answer)) !== null) {
-    if (m.index > last) parts.push({ text: answer.slice(last, m.index), marker: null });
-    parts.push({ text: m[1], marker: Number(m[1]) });
-    last = re.lastIndex;
-  }
-  if (last < answer.length) parts.push({ text: answer.slice(last), marker: null });
-  return parts;
-}
 
 function isTeacherLike(): boolean {
   const roles = currentUser()?.roles ?? [];
@@ -304,8 +290,6 @@ function AssistantMessage({
   teacher: boolean;
   onCitationJump: (messageIndex: number, citation: TutorCitation) => void;
 }) {
-  const segments = useMemo(() => parseMarkers(result.answer), [result.answer]);
-
   if (result.refused) {
     return (
       <div className="max-w-[92%] rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
@@ -327,22 +311,24 @@ function AssistantMessage({
 
   return (
     <div className="flex flex-col items-start gap-2">
-      <div className="max-w-[92%] rounded-lg border bg-muted/40 px-3 py-2.5 text-sm whitespace-pre-wrap">
-        {segments.map((seg, i) =>
-          seg.marker === null ? (
-            <span key={i}>{seg.text}</span>
-          ) : (
+      {/* s138: the answer renders as GFM markdown + KaTeX/mhchem math; the
+          [n] markers ride the pipeline as citation:// links and come out
+          through renderCitation — same chips, same jump behavior as before */}
+      <div className="max-w-[92%] rounded-lg border bg-muted/40 px-3 py-2.5">
+        <ChatMarkdown
+          renderCitation={(marker) => (
             <CitationMarker
-              key={i}
-              marker={seg.marker}
+              marker={marker}
               citationCount={result.citations.length}
               onClick={() => {
-                const citation = result.citations[seg.marker! - 1];
+                const citation = result.citations[marker - 1];
                 if (citation) onCitationJump(messageIndex, citation);
               }}
             />
-          ),
-        )}
+          )}
+        >
+          {result.answer}
+        </ChatMarkdown>
       </div>
 
       {result.topics.length > 0 && (

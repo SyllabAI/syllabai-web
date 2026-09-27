@@ -17,7 +17,10 @@
  *   error noise. It is the product working as designed.
  * - Refused answers render distinctly (the deterministic refusal path).
  * - Citation markers render as chips that jump to the reference card; both
- *   ASCII [n] and fullwidth 【n】 markers are parsed.
+ *   ASCII [n] and fullwidth 【n】 markers are parsed (s138: inside the
+ *   markdown pipeline via a citation:// link rewrite, so chips survive
+ *   bold/lists/tables; answers render as GFM markdown + KaTeX/mhchem math
+ *   through the shared ChatMarkdown renderer).
  * - Model/provider/latency/evidence-count/tools are shown with every answer
  *   (research traceability, Master Spec §19) — the tools trace lists the
  *   read-only tool invocations the server made, never their raw output.
@@ -48,6 +51,7 @@ import {
 } from "lucide-react";
 import { ApiError, aiAskErrorMessage, api } from "@/lib/api";
 import type { ClaAnswerView, ClaMode, StudentQuestionView } from "@/lib/types";
+import { ChatMarkdown } from "@/components/syllabai/ChatMarkdown";
 
 const MAX_QUESTION_CHARS = 2000; // mirrors the backend @Size(max = 2000)
 
@@ -69,21 +73,9 @@ function isTopicKind(kind: "KG_TOPIC" | "PAST_PAPER_QUESTION" | "QUESTION_PART" 
   return kind === "KG_TOPIC" || kind === "SMART_LESSON";
 }
 
-/** Split an answer into text + citation-marker segments ([n] and 【n】). */
-function parseMarkers(answer: string): { text: string; marker: number | null }[] {
-  const parts: { text: string; marker: number | null }[] = [];
-  const re = /[\u005B\u3010](\d+)[\u005D\u3011]/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(answer)) !== null) {
-    if (m.index > last) parts.push({ text: answer.slice(last, m.index), marker: null });
-    parts.push({ text: m[1], marker: Number(m[1]) });
-    last = re.lastIndex;
-  }
-  if (last < answer.length) parts.push({ text: answer.slice(last), marker: null });
-  return parts;
-}
-
+/** The grounded answer body — GFM markdown + KaTeX math, citation chips
+ *  jumping to the reference cards (shared by the assistant tab and both CLA
+ *  overlays, NoteClaOverlay + QuestionClaOverlay). */
 export function AnswerBody({ result }: { result: ClaAnswerView }) {
   const citationIds = useMemo(
     () => new Set(result.citations.map((c) => c.index)),
@@ -91,27 +83,29 @@ export function AnswerBody({ result }: { result: ClaAnswerView }) {
   );
   return (
     <div className="space-y-3">
-      <p className="whitespace-pre-wrap text-sm leading-relaxed">
-        {parseMarkers(result.answer).map((seg, i) =>
-          seg.marker !== null ? (
-            <span key={i} className="relative">
-              <a
-                href={`#cla-cite-${result.context.reference}-${seg.marker}`}
-                className={
-                  citationIds.has(seg.marker)
-                    ? "mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-primary/10 px-0.5 text-[10px] font-semibold text-primary hover:bg-primary/20"
-                    : "mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-destructive/10 px-0.5 text-[10px] font-semibold text-destructive"
-                }
-                title={citationIds.has(seg.marker) ? "Jump to source" : "Unresolved marker"}
-              >
-                {seg.marker}
-              </a>
-            </span>
-          ) : (
-            <span key={i}>{seg.text}</span>
-          ),
-        )}
-      </p>
+      {/* s138: the answer renders as GFM markdown + KaTeX/mhchem math; the
+          [n]/【n】 markers ride the pipeline as citation:// links and come
+          out through renderCitation — same chips, same anchors as before */}
+      <ChatMarkdown
+        renderCitation={(marker) => {
+          const resolved = citationIds.has(marker);
+          return (
+            <a
+              href={`#cla-cite-${result.context.reference}-${marker}`}
+              className={
+                resolved
+                  ? "mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-primary/10 px-0.5 text-[10px] font-semibold text-primary hover:bg-primary/20"
+                  : "mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-destructive/10 px-0.5 text-[10px] font-semibold text-destructive"
+              }
+              title={resolved ? "Jump to source" : "Unresolved marker"}
+            >
+              {marker}
+            </a>
+          );
+        }}
+      >
+        {result.answer}
+      </ChatMarkdown>
       {result.citations.length > 0 && (
         <div className="space-y-1.5">
           <Separator />
