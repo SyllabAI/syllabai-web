@@ -14,10 +14,15 @@
  *   page (survives tab switches) and is sent back with each ask as a bounded
  *   `history` — the tutor answers follow-ups ("why is that?", "the second
  *   point") because retrieval is enriched with the recent turns and the
- *   prompt carries the conversation. Refresh still forgets, by design: this
- *   is working memory, not the (rejected) cross-session transcript store;
- *   server-side session persistence arrives with the Spec §22
- *   `tutor/sessions` endpoints — not invented here.
+ *   prompt carries the conversation.
+ * - Cross-session memory (s140, Spec §22): the first ask of a chat creates a
+ *   server-side tutor session and every exchange is appended to it; a refresh
+ *   (or a return visit in the same browser) hydrates the transcript from the
+ *   store — "Picked up from your last conversation" — and "New chat"
+ *   abandons the session (the next ask lazily creates a fresh one). The
+ *   tutor also opens with grounded continuity from what the learner has
+ *   already done on the topic (earlier asks, practice outcomes, reviews —
+ *   see the s140 RECENT LEARNING EXPERIENCES digest, backend).
  * - A draft question can arrive from practice ("Ask tutor about this") —
  *   it only pre-fills the input; the student edits and sends it themselves.
  * - Citation deep links currently target the teacher content API / KG nodes
@@ -27,7 +32,8 @@
  * - Refusals (no grounded evidence) render distinctly — they are deterministic
  *   (provider "deterministic-refusal", no LLM call).
  * - Model/provider/latency/evidence-count are shown with every answer
- *   (research traceability, Master Spec §19).
+ *   (research traceability, Master Spec §19). Restored (hydrated) turns keep
+ *   the same footer fields; their citations stay in the research telemetry.
  */
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
@@ -38,9 +44,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { AlertTriangle, ExternalLink, GraduationCap, MessageSquarePlus, Quote, RotateCcw, Send } from "lucide-react";
+import { AlertTriangle, ExternalLink, GraduationCap, History, MessageSquarePlus, Quote, RotateCcw, Send } from "lucide-react";
 import { aiAskErrorMessage, api, apiPath, currentUser } from "@/lib/api";
-import type { TutorAnswerView, TutorCitation, TutorHistoryTurn } from "@/lib/types";
+import type { TutorAnswerView, TutorCitation, TutorHistoryTurn, TutorSessionTurnView } from "@/lib/types";
 import { ChatMarkdown } from "@/components/syllabai/ChatMarkdown";
 
 const MAX_QUESTION_CHARS = 2000; // mirrors the backend @Size(max = 2000)
@@ -48,6 +54,11 @@ const MAX_QUESTION_CHARS = 2000; // mirrors the backend @Size(max = 2000)
 /** Client-side working-memory cap — below the server's 12-turn re-sanitize
  *  bound, so the request always passes validation as-is. */
 const MAX_HISTORY_TURNS_SENT = 8;
+
+/** s140 §22 session store: where the current chat's server-side session id
+ *  lives so a refresh (or a return visit in the same browser) can hydrate
+ *  the transcript. A foreign/unknown id 404s server-side and is dropped. */
+const SESSION_STORAGE_KEY = "syllabai.tutor.sessionId";
 
 export type TutorChatMessage =
   | { kind: "user"; text: string; at: number }
@@ -102,6 +113,42 @@ export function historyFor(
   return turns.slice(-MAX_HISTORY_TURNS_SENT);
 }
 
+/**
+ * Map a stored §22 transcript turn back to the chat-message shape (s140
+ * hydration). Restored assistant turns keep the honest §19 footer fields
+ * (model/provider/latency/evidence count); citations are NOT reconstructed —
+ * the stored prose is the learner-visible answer with markers stripped, and
+ * the citation archive of record is the research telemetry.
+ */
+export function restoredMessage(turn: TutorSessionTurnView): TutorChatMessage {
+  if (turn.role === "user") {
+    return { kind: "user", text: turn.content, at: Date.parse(turn.at) };
+  }
+  const result: TutorAnswerView = {
+    answer: turn.content,
+    citations: [],
+    topics: [],
+    evidenceCount: turn.evidenceCount,
+    model: turn.model,
+    provider: turn.provider ?? "restored",
+    refused: turn.refused,
+    latencyMs: turn.latencyMs ?? 0,
+  };
+  return { kind: "assistant", result, at: Date.parse(turn.at) };
+}
+
+/** Coarse, locale-agnostic recency for the "picked up from" divider — the
+ *  learner needs "how fresh", not a timestamp. */
+function restoredAt(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  const days = Math.floor((Date.now() - at.getTime()) / 86_400_000);
+  if (days <= 0) return " · earlier today";
+  if (days === 1) return " · yesterday";
+  if (days < 7) return ` · ${days} days ago`;
+  return ` · ${at.toLocaleDateString()}`;
+}
+
 export function TutorChatView({
   messages,
   setMessages,
@@ -118,6 +165,9 @@ export function TutorChatView({
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [highlightedCitation, setHighlightedCitation] = useState<string | null>(null);
+  // s140: shown above a hydrated transcript so "where did this come from"
+  // has an honest answer
+  const [restoredFrom, setRestoredFrom] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   // In-flight guard via ref: the state flag alone is stale inside the closure
   // until re-render, so a fast double-Enter could fire two tutor calls.
@@ -127,7 +177,42 @@ export function TutorChatView({
   // the ask — retry buttons in particular fire with an older snapshot.
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  // s140 §22 session: the server-side transcript this chat appends to. null
+  // = the next ask creates one (lazy — "New chat" never leaves empty rows).
+  // localStorage survives refresh; a foreign id 404s server-side and drops.
+  const sessionIdRef = useRef<string | null>(null);
+  const hydratedRef = useRef(false);
   const teacher = isTeacherLike();
+
+  // s140 refresh hydration: pick up the stored session once per mount when
+  // the in-memory transcript is empty. Failures are silent by design — a
+  // cleared/foreign/expired id just means a fresh chat, never an error wall.
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    if (messagesRef.current.length > 0) return;
+    const stored = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!stored) return;
+    let cancelled = false;
+    api
+      .tutorSessionGet(stored)
+      .then((session) => {
+        if (cancelled || session.turns.length === 0) return;
+        setMessages(session.turns.map(restoredMessage));
+        setRestoredFrom(session.lastActiveAt);
+      })
+      .catch(() => {
+        // unknown/foreign/expired — drop the stale pointer, start fresh
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+        sessionIdRef.current = null;
+      });
+    return () => {
+      cancelled = true;
+    };
+    // messages deliberately not in deps: hydration is a once-per-mount
+    // bootstrap, not a reaction to transcript changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // A draft arriving from another surface fills the input (the student stays
   // in control — they can edit or clear it before asking).
@@ -158,7 +243,19 @@ export function TutorChatView({
     setMessages((prev) => [...prev, { kind: "user", text: trimmed, at: Date.now() }]);
     setSending(true);
     try {
-      const result = await api.tutorAsk(trimmed, history);
+      // s140: lazily create the §22 session on the first ask of a chat. A
+      // failed create degrades to an unpersisted ask — the answer matters
+      // more than its archival (the error surfaces on the ask itself).
+      if (!sessionIdRef.current) {
+        try {
+          const created = await api.tutorSessionCreate();
+          sessionIdRef.current = created.sessionId;
+          window.localStorage.setItem(SESSION_STORAGE_KEY, created.sessionId);
+        } catch {
+          sessionIdRef.current = null;
+        }
+      }
+      const result = await api.tutorAsk(trimmed, history, sessionIdRef.current);
       setMessages((prev) => [...prev, { kind: "assistant", result, at: Date.now() }]);
     } catch (err) {
       // 5xx = the backend LLM chain has no working provider — honest
@@ -172,6 +269,17 @@ export function TutorChatView({
       setSending(false);
       sendingRef.current = false;
     }
+  }
+
+  // "New chat": clear the in-memory transcript AND abandon the server session
+  // — the next ask lazily creates a fresh one, so no empty session rows are
+  // ever written. The stale localStorage pointer must go too, or a refresh
+  // would resurrect the chat the learner just left.
+  function newChat() {
+    setMessages([]);
+    setRestoredFrom(null);
+    sessionIdRef.current = null;
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
   }
 
   function jumpToCitation(messageIndex: number, citation: TutorCitation) {
@@ -193,12 +301,14 @@ export function TutorChatView({
             </div>
             {/* s139: with working memory, starting fresh needs an explicit
                 affordance — a stale conversation otherwise keeps enriching
-                retrieval with off-topic turns after a topic switch. */}
+                retrieval with off-topic turns after a topic switch. s140: it
+                also abandons the §22 server session (the next ask creates a
+                fresh one lazily — no empty rows). */}
             <Button
               variant="ghost"
               size="sm"
               className="gap-1.5 px-2 text-xs text-muted-foreground"
-              onClick={() => setMessages([])}
+              onClick={newChat}
               disabled={sending || messages.length === 0}
               aria-label="Start a new conversation (clears this chat)"
               title="Start a new conversation (clears this chat)"
@@ -210,8 +320,9 @@ export function TutorChatView({
           <p className="text-xs text-muted-foreground">
             Grounded answers with verbatim citations from validated course content —
             mark schemes, question papers and the specification. The tutor remembers
-            this conversation while you stay in it, so you can ask follow-ups like
-            “why is that?”.
+            this conversation while you stay in it, picks up where you left off when
+            you come back, and knows what you’ve already practised on a topic — so
+            follow-ups like “why is that?” just work.
           </p>
         </CardContent>
       </Card>
@@ -219,6 +330,13 @@ export function TutorChatView({
       <div className="rounded-lg border bg-background">
         <ScrollArea className="h-[52vh] min-h-80">
           <div ref={transcriptRef} className="flex flex-col gap-4 p-4" aria-live="polite">
+            {restoredFrom && messages.length > 0 && (
+              <div className="flex items-center gap-1.5 self-center text-[11px] text-muted-foreground">
+                <History className="size-3" aria-hidden="true" />
+                Picked up from your last conversation
+                {restoredAt(restoredFrom)}
+              </div>
+            )}
             {messages.length === 0 && (
               <div className="flex flex-col items-center gap-3 py-8 text-center">
                 <GraduationCap className="size-8 text-muted-foreground/60" aria-hidden="true" />

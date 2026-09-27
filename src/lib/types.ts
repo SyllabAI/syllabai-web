@@ -353,6 +353,37 @@ export interface TutorHistoryTurn {
   text: string;
 }
 
+// ── Tutor sessions (s140, Spec §22 — mirrors the TutorSessionService DTOs) ──
+
+/** One stored transcript turn; assistant turns carry the §19 traceability
+ *  footer fields so a hydrated chat renders exactly what the live answer
+ *  showed (citations stay in the research telemetry — restored prose only). */
+export interface TutorSessionTurnView {
+  seq: number;
+  role: "user" | "assistant";
+  content: string;
+  evidenceCount: number;
+  refused: boolean;
+  model: string | null;
+  provider: string | null;
+  latencyMs: number | null;
+  at: string;
+}
+
+/** GET /api/v1/tutor/sessions/{id} — the caller's own transcript. */
+export interface TutorSessionView {
+  sessionId: string;
+  createdAt: string;
+  lastActiveAt: string;
+  turns: TutorSessionTurnView[];
+}
+
+/** POST /api/v1/tutor/sessions response. */
+export interface TutorSessionCreated {
+  sessionId: string;
+  createdAt: string;
+}
+
 // ── Personalized knowledge graph (T-028, mirrors the F-034 backend DTOs) ──
 
 /** KG node + THIS learner's annotations (null = honest "not practised / no signal"). */

@@ -81,6 +81,8 @@ import type {
   WeaknessOptionsView,
   TutorAnswerView,
   TutorHistoryTurn,
+  TutorSessionCreated,
+  TutorSessionView,
   RevisionNoteBodyView,
   RevisionNotesIndexView,
   MarkSchemeRevealView,
@@ -495,12 +497,27 @@ export const api = {
 
   // s139 working memory: the chat's prior turns ride the ask (client-held,
   // capped at the last 8 here — the server re-sanitizes at 12). Omitted/
-  // empty behaves exactly like the pre-s139 single-turn ask.
-  tutorAsk: (question: string, history?: TutorHistoryTurn[]) =>
+  // empty behaves exactly like the pre-s139 single-turn ask. s140: an owned
+  // sessionId persists the exchange to the §22 session store (omitted =
+  // unpersisted ask, pre-s140 behavior).
+  tutorAsk: (question: string, history?: TutorHistoryTurn[], sessionId?: string | null) =>
     request<TutorAnswerView>("/api/v1/tutor/ask", {
       method: "POST",
-      body: JSON.stringify({ question, history: history ?? [] }),
+      body: JSON.stringify({
+        question,
+        history: history ?? [],
+        ...(sessionId ? { sessionId } : {}),
+      }),
     }),
+
+  // s140 §22 session store: the sanctioned server-side transcript surface.
+  // create starts a chat ("New chat" / first ask of a sitting); the id rides
+  // subsequent asks so their turns persist; get hydrates after a refresh.
+  tutorSessionCreate: () =>
+    request<TutorSessionCreated>("/api/v1/tutor/sessions", { method: "POST" }),
+
+  tutorSessionGet: (sessionId: string) =>
+    request<TutorSessionView>(`/api/v1/tutor/sessions/${encodeURIComponent(sessionId)}`),
 
   // CLA (contract §2–§7): the context + mode are explicit and server-resolved
   // (fail-closed 404 on anything unvalidated/foreign); CHECK pre-attempt is a
