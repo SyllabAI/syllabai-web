@@ -6,8 +6,13 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* fonts resolve through runtime vars so themes can re-point them (see
+     --app-font-* below) — @theme inline copies these values into utilities,
+     and since the copied value is itself a var() reference it still
+     re-resolves per theme at runtime */
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+  --font-display: var(--app-font-display);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -25,6 +30,14 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  /* semantic status hues — theme-aware (SME: emerald/amber/sky/... family;
+     Quiet Green: fern/clay/teal/violet/plum). Alpha modifiers work: bg-success/10 */
+  --color-success: var(--success);
+  --color-warn: var(--warn);
+  --color-warn-ink: var(--warn-ink);
+  --color-info: var(--info);
+  --color-cat: var(--cat);
+  --color-sim: var(--sim);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -45,13 +58,25 @@
 
 :root {
   --radius: 0.625rem;
+  /* font chains (runtime vars — themes re-point these) */
+  --app-font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --app-font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --app-font-display: var(--font-kodchasan), var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  /* semantic status raws — SME light (kept identical to the pre-theme
+     hardcoded Tailwind shades so the SME theme renders exactly as before) */
+  --success: #047857;   /* emerald-700 */
+  --warn: #b45309;      /* amber-700 */
+  --warn-ink: #78350f;  /* amber-900 — body copy on warn washes */
+  --info: #0369a1;      /* sky-700 */
+  --cat: #6d28d9;       /* violet-700 */
+  --sim: #a21caf;       /* fuchsia-700 */
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: oklch(0.541 0.238 264.7); /* SME brand blue #265bf6 */
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -62,9 +87,9 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.541 0.238 264.7);
   --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-2: oklch(0.678 0.152 150.1); /* SME green #42b163 */
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
@@ -79,14 +104,21 @@
 }
 
 .dark {
+  /* semantic status raws — SME dark (lightened family shades, as before) */
+  --success: #34d399;   /* emerald-400 */
+  --warn: #fbbf24;      /* amber-400 */
+  --warn-ink: #fcd34d;  /* amber-300 */
+  --info: #38bdf8;      /* sky-400 */
+  --cat: #a78bfa;       /* violet-400 */
+  --sim: #e879f9;       /* fuchsia-400 */
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.72 0.145 264.4); /* lighter SME blue for dark surfaces */
+  --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -112,25 +144,332 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* ====================================================================
+   QUIET GREEN THEME (Open Notebook, v1.14) — data-theme="quiet-green"
+   Block order matters: these come AFTER .dark so that on
+   html[data-theme=quiet-green].dark the alias group (same specificity,
+   later) beats SME-dark aliases, and the dark raw block (0,2,0) beats
+   both. Architecture: light block sets raw values; the shared alias
+   group maps them onto the shadcn slots; the dark block overrides RAW
+   VALUES ONLY — aliases re-resolve automatically.
+   ==================================================================== */
+[data-theme="quiet-green"] {
+  /* the 9 owned hues */
+  --fern: #2e6b4f;   --fern-deep: #245740;   --fern-tint: #dfeae2;
+  --sage: #5e7a54;   --sage-deep: #47603f;   --sage-tint: #e5ebdc;
+  --gold: #a97b12;   --gold-deep: #7c5a05;   --gold-tint: #f3ead3;
+  --teal: #0e7268;   --teal-deep: #095a51;   --teal-tint: #ddece8;
+  --plum: #5d4991;   --plum-tint: #eae6f3;
+  --mauve: #8d5b80;  --mauve-deep: #714566;  --mauve-tint: #f1e5ee;
+  --slate: #4e6b84;  --slate-deep: #3a5468;  --slate-tint: #e1e8ee;
+  --violet: #6e51a6; --violet-deep: #57408a; --violet-tint: #ebe5f5;
+  --clay: #b0451f;   --clay-deep: #93330f;   --clay-tint: #f5e4db;
+
+  /* surfaces / ink / lines */
+  --bg: #f5f5f2;                --bg-deep: #eeeee9;
+  --surface: #fefefc;           --surface-raised: #ffffff;
+  --surface-recessed: #f4f4f0;  --surface-sunken: #ecece7;
+  --ink: #23252a;  --ink-soft: #565a61;  --ink-faint: #878b92;  --ink-faintest: #a8abb1;
+  --line: #e0e0da;  --line-soft: #e8e8e2;  --line-strong: #23252a;
+
+  /* action / danger / status raws */
+  --primary-qg: #2e6b4f;  --primary-qg-hover: #245740;  --on-primary-qg: #f1f8f3;
+  --danger-qg: #b0432d;
+  --success: var(--fern);
+  --warn: var(--clay);
+  --warn-ink: var(--clay-deep);
+  --info: var(--teal);
+  --cat: var(--violet);
+  --sim: var(--plum);
+
+  /* geometry — squared: floor is 4px */
+  --radius: 5px;
+
+  /* fonts — Instrument Sans body / Bricolage display / Spline Sans Mono */
+  --app-font-sans: var(--font-instrument-sans), "Helvetica Neue", Arial, sans-serif;
+  --app-font-mono: var(--font-spline-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --app-font-display: var(--font-bricolage), var(--font-jakarta), "Trebuchet MS", sans-serif;
+
+  color-scheme: light;
+}
+
+/* shadcn alias contract — defined once, re-resolves in dark */
+[data-theme="quiet-green"],
+[data-theme="quiet-green"].dark {
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--ink);
+  --primary: var(--primary-qg);
+  --primary-foreground: var(--on-primary-qg);
+  --secondary: var(--surface-recessed);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface-recessed);
+  --muted-foreground: var(--ink-soft);
+  --accent: var(--surface-sunken);
+  --accent-foreground: var(--ink);
+  --destructive: var(--danger-qg);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--teal);
+  --chart-1: var(--fern);
+  --chart-2: var(--teal);
+  --chart-3: var(--gold);
+  --chart-4: var(--plum);
+  --chart-5: var(--slate);
+  --sidebar: var(--bg-deep);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--primary-qg);
+  --sidebar-primary-foreground: var(--on-primary-qg);
+  --sidebar-accent: var(--surface);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--teal);
+}
+
+/* dark — raw values only */
+[data-theme="quiet-green"].dark {
+  --fern: #55b285;   --fern-deep: #6cc298;   --fern-tint: #1b2f25;
+  --sage: #93b084;   --sage-deep: #a8c299;   --sage-tint: #232b1d;
+  --gold: #cfa13e;   --gold-deep: #ddb55f;   --gold-tint: #322b1b;
+  --teal: #3fb3a5;   --teal-deep: #64c5b9;   --teal-tint: #16302c;
+  --plum: #a290d3;   --plum-tint: #29253a;
+  --mauve: #c892ba;  --mauve-deep: #d6a8cb;  --mauve-tint: #322230;
+  --slate: #8fafc8;  --slate-deep: #a5c1d6;  --slate-tint: #212b34;
+  --violet: #a995db; --violet-deep: #bcaae6; --violet-tint: #2b2540;
+  --clay: #f08a5c;   --clay-deep: #f5a07a;   --clay-tint: #35211a;
+
+  --bg: #17181b;                --bg-deep: #121316;
+  --surface: #1e2024;           --surface-raised: #24262b;
+  --surface-recessed: #24262b;  --surface-sunken: #2b2d33;
+  --ink: #ecedea;  --ink-soft: #a9acb1;  --ink-faint: #74777d;  --ink-faintest: #63666c;
+  --line: #2e3036;  --line-soft: #26282d;  --line-strong: #ecedea;
+
+  --primary-qg: #3d8e67;  --primary-qg-hover: #479e74;  --on-primary-qg: #ecf7f0;
+  --danger-qg: #df7c63;
+
+  color-scheme: dark;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
+  h1 {
+    /* resolve through the theme-level chain — @theme inline does not emit
+       tokens as runtime vars, so reference the --app-font-* raw var */
+    font-family: var(--app-font-display);
+  }
+}
+
+/* ---- SME-style framework tag chips (Study / Practice / Diagnose) ----
+   Palette from the SaveMyExams reference pages (Task 21-b dissection):
+   Study = green #42b163, Practice = brand blue #265bf6, Diagnose = amber. */
+.chip-study {
+  background: oklch(0.678 0.152 150.1 / 0.12);
+  color: oklch(0.51 0.115 150.1);
+}
+.chip-practice {
+  background: oklch(0.541 0.238 264.7 / 0.1);
+  color: oklch(0.47 0.19 264.7);
+}
+.chip-diagnose {
+  background: oklch(0.75 0.14 70 / 0.16);
+  color: oklch(0.5 0.115 60);
+}
+
+.dark .chip-study {
+  background: oklch(0.678 0.152 150.1 / 0.2);
+  color: oklch(0.82 0.13 150.1);
+}
+.dark .chip-practice {
+  background: oklch(0.541 0.238 264.7 / 0.25);
+  color: oklch(0.78 0.13 264.7);
+}
+.dark .chip-diagnose {
+  background: oklch(0.75 0.14 70 / 0.22);
+  color: oklch(0.83 0.12 75);
+}
+
+/* ====================================================================
+   QUIET GREEN — authored layer (theme-scoped component signatures)
+   Everything here targets [data-theme="quiet-green"] only; the SME
+   theme is untouched. Component files are NOT modified for QG.
+   ==================================================================== */
+
+/* --- geometry: exact 4/5/5/6 spec (the --radius calc chain gives 1/3/5/9,
+       so the squared utilities are pinned directly under the theme) --- */
+[data-theme="quiet-green"] .rounded-sm { border-radius: 4px; }
+[data-theme="quiet-green"] .rounded-md,
+[data-theme="quiet-green"] .rounded-lg { border-radius: 5px; }
+[data-theme="quiet-green"] .rounded-xl { border-radius: 6px; }
+
+/* --- depth: hairlines, not shadows. Kill static shadow utilities while
+       keeping the ring var chain intact (focus rings still render) --- */
+[data-theme="quiet-green"] :is(.shadow-2xs, .shadow-xs, .shadow-sm, .shadow, .shadow-md, .shadow-lg, .shadow-xl) {
+  --tw-shadow: 0 0 #0000;
+  --tw-shadow-colored: 0 0 #0000;
+}
+
+/* --- tabs: the signature underline style (fern spine) --- */
+[data-theme="quiet-green"] [data-slot="tabs-list"] {
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0;
+  gap: 1rem;
+  height: auto;
+}
+[data-theme="quiet-green"] [data-slot="tabs-trigger"] {
+  height: 2.25rem;
+  margin-bottom: -1px;
+  border-radius: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding-inline: 0.25rem;
+}
+[data-theme="quiet-green"] [data-slot="tabs-trigger"]:hover {
+  background: transparent;
+  color: var(--ink);
+}
+[data-theme="quiet-green"] [data-slot="tabs-trigger"][data-state="active"],
+[data-theme="quiet-green"].dark [data-slot="tabs-trigger"][data-state="active"] {
+  background: transparent;
+  border-bottom-color: var(--primary);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+/* --- course sidebar active item: fern spine + raised surface --- */
+[data-theme="quiet-green"] a.course-nav-item[aria-current="page"] {
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--border);
+  position: relative;
+}
+[data-theme="quiet-green"] a.course-nav-item[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--fern);
+}
+
+/* --- framework chips: squared, owned-hue tints (Study=fern, Practice=sage,
+       Diagnose=gold). Light uses deep ink on tint; dark flips raws. --- */
+[data-theme="quiet-green"] .chip-study {
+  background: var(--fern-tint);
+  color: var(--fern-deep);
+  border-radius: 4px;
+}
+[data-theme="quiet-green"] .chip-practice {
+  background: var(--sage-tint);
+  color: var(--sage-deep);
+  border-radius: 4px;
+}
+[data-theme="quiet-green"] .chip-diagnose {
+  background: var(--gold-tint);
+  color: var(--gold-deep);
+  border-radius: 4px;
+}
+[data-theme="quiet-green"].dark .chip-study {
+  background: var(--fern-tint);
+  color: var(--fern);
+}
+[data-theme="quiet-green"].dark .chip-practice {
+  background: var(--sage-tint);
+  color: var(--sage);
+}
+[data-theme="quiet-green"].dark .chip-diagnose {
+  background: var(--gold-tint);
+  color: var(--gold);
+}
+
+/* --- Past Papers viewer (pdf-pane v3): pdf.js text layer + find highlights ---
+   The text layer hosts transparent absolutely-positioned spans produced by
+   pdf.js TextLayer; spans position themselves with
+   calc(var(--scale-factor) * Npx) inline styles, so the holder must carry
+   --scale-factor (PdfPane sets it on every paint). Highlights live below the
+   text layer so selection still works over marked ranges. */
+.pp-textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+}
+.pp-textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+.pp-textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+.pp-textLayer ::selection {
+  background: rgba(59, 130, 246, 0.35);
+}
+.pp-hl-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+.pp-hl {
+  position: absolute;
+  border-radius: 2px;
+  background: rgba(250, 204, 21, 0.45);
+  box-shadow: 0 0 0 1px rgba(202, 138, 4, 0.35);
+}
+.pp-hl-current {
+  background: rgba(251, 146, 60, 0.5);
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.6);
+}
+
+/* pdf-pane fullscreen (toolbar Maximize button): the pane IS the screen.
+   In the fullscreen top layer the element keeps its layout classes
+   (h-full/flex-1 of a parent that no longer bounds it), so pin it to the
+   viewport explicitly; strip the card rounding/border and let the internal
+   toolbar + scroll area flex to the full height. */
+.pp-pane:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+}
+.pp-pane:fullscreen::-webkit-backdrop {
+  background: var(--background);
+}
+.pp-pane:fullscreen::backdrop {
+  background: var(--background);
 }
 
 /* ── SME demo-parity theme for the Exam Questions surface (session-119) ──
  *
- * The syllabai-demo playground (syllabai-demo.vercel.app) is the operator's
- * approved look-and-feel reference for exam questions. This scope ports its
- * SME visual identity onto the production surface WITHOUT touching the rest
- * of the workbench: every utility under .exam-theme (and inside portalled
- * dialogs that carry the class) resolves the SME blue primary and the
- * Jakarta/Kodchasan type stack instead of the workbench defaults.
- *   light: primary = SME brand blue #265bf6  (demo globals.css)
- *   dark:  primary = lighter SME blue for dark surfaces (oklch .72 .145 264.4)
+ * Retained from the pre-import workbench: with the Learning Hub design
+ * system adopted globally (SME tokens in :root), this scoping is now a
+ * harmless duplicate of the global values — kept so the Exam Questions
+ * surface is byte-stable through the design-system transition.
  */
 .exam-theme {
   --primary: oklch(0.541 0.238 264.7);

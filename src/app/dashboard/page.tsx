@@ -1,0 +1,14 @@
+import { listCourses } from "@/lib/courses";
+import { DashboardClient } from "./dashboard-client";
+
+export const dynamic = "force-dynamic";
+
+export const metadata = {
+  title: "Dashboard — SyllabAI",
+  description: "Your subjects and their spec-anchored resources.",
+};
+
+export default async function DashboardPage() {
+  const courses = await listCourses();
+  return <DashboardClient courses={courses} />;
+}

@@ -1,0 +1,398 @@
+{
+  "schema": "syllabai-demo.course-registry/1.1",
+  "note": "Operator-maintained registry mirroring the 49 Edexcel IAL/IGCSE course variants scraped in SyllabAI/syllabai-resources (authoritative source). Every course has a content bundle under content/<slug>/ imported from the corpus: 'pilot' = official-tree course with the 4CH1 concept graph and learner overlay; 'full' = complete SME-native corpus import (notes, exam questions, flashcards; official-spec mapping pending upstream for all non-4CH1 courses). Slugs, levels, subjects and exam codes come from the upstream manifests — never invented. T-SME-11 (2026-09-20) added the 10 missing-subject lanes: English Language A 4EA1 (3 paper lanes), Maths B 4MB1, Science Double Award Modular 2024 4XSD1 (6 unit lanes); 8 of them carry no SME topic questions (honest upstream census), all have revision notes and spec indexes.",
+  "courses": [
+    {
+      "slug": "ial-biology-18",
+      "level": "IAL",
+      "subject": "Biology",
+      "label": "Biology",
+      "code": "YBI11",
+      "status": "full"
+    },
+    {
+      "slug": "ial-chemistry-17",
+      "level": "IAL",
+      "subject": "Chemistry",
+      "label": "Chemistry",
+      "code": "YCH11",
+      "status": "full"
+    },
+    {
+      "slug": "ial-further-maths-18-further-pure-1",
+      "level": "IAL",
+      "subject": "Further Maths",
+      "label": "Further Maths — Further Pure 1",
+      "code": "YFM01",
+      "status": "full"
+    },
+    {
+      "slug": "ial-maths-20-decision-1",
+      "level": "IAL",
+      "subject": "Maths",
+      "label": "Maths — Decision 1",
+      "code": "YMA01",
+      "status": "full"
+    },
+    {
+      "slug": "ial-maths-20-mechanics-1",
+      "level": "IAL",
+      "subject": "Maths",
+      "label": "Maths — Mechanics 1",
+      "code": "YMA01",
+      "status": "full"
+    },
+    {
+      "slug": "ial-maths-20-mechanics-2",
+      "level": "IAL",
+      "subject": "Maths",
+      "label": "Maths — Mechanics 2",
+      "code": "YMA01",
+      "status": "full"
+    },
+    {
+      "slug": "ial-maths-20-pure-1",
+      "level": "IAL",
+      "subject": "Maths",
+      "label": "Maths — Pure Mathematics 1",
+      "code": "YMA01",
+      "status": "full"
+    },
+    {
+      "slug": "ial-maths-20-pure-2",
+      "level": "IAL",
+      "subject": "Maths",
+      "label": "Maths — Pure Mathematics 2",
+      "code": "YMA01",
+      "status": "full"
+    },
+    {
+      "slug": "ial-maths-20-pure-3",
+      "level": "IAL",
+      "subject": "Maths",
+      "label": "Maths — Pure Mathematics 3",
+      "code": "YMA01",
+      "status": "full"
+    },
+    {
+      "slug": "ial-maths-20-pure-4",
+      "level": "IAL",
+      "subject": "Maths",
+      "label": "Maths — Pure Mathematics 4",
+      "code": "YMA01",
+      "status": "full"
+    },
+    {
+      "slug": "ial-maths-20-statistics-1",
+      "level": "IAL",
+      "subject": "Maths",
+      "label": "Maths — Statistics 1",
+      "code": "YMA01",
+      "status": "full"
+    },
+    {
+      "slug": "ial-maths-20-statistics-2",
+      "level": "IAL",
+      "subject": "Maths",
+      "label": "Maths — Statistics 2",
+      "code": "YMA01",
+      "status": "full"
+    },
+    {
+      "slug": "ial-physics-19",
+      "level": "IAL",
+      "subject": "Physics",
+      "label": "Physics",
+      "code": "YPH11",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-accounting-17-financial-statements",
+      "level": "IGCSE",
+      "subject": "Accounting",
+      "label": "Accounting",
+      "code": "4AC1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-accounting-17-introduction-to-bookkeeping-and-accounting",
+      "level": "IGCSE",
+      "subject": "Accounting",
+      "label": "Accounting",
+      "code": "4AC1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-biology-19",
+      "level": "IGCSE",
+      "subject": "Biology",
+      "label": "Biology",
+      "code": "4BI1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-biology-modular-24-unit-1",
+      "level": "IGCSE",
+      "subject": "Biology",
+      "label": "Biology — Modular 2024, Unit 1",
+      "code": "4XBI1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-biology-modular-24-unit-2",
+      "level": "IGCSE",
+      "subject": "Biology",
+      "label": "Biology — Modular 2024, Unit 2",
+      "code": "4XBI1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-business-19",
+      "level": "IGCSE",
+      "subject": "Business",
+      "label": "Business",
+      "code": "4BS1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-chemistry-19",
+      "level": "IGCSE",
+      "subject": "Chemistry",
+      "label": "Chemistry",
+      "code": "4CH1",
+      "status": "pilot"
+    },
+    {
+      "slug": "igcse-chemistry-modular-24-unit-1",
+      "level": "IGCSE",
+      "subject": "Chemistry",
+      "label": "Chemistry — Modular 2024, Unit 1",
+      "code": "4XCH1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-chemistry-modular-24-unit-2",
+      "level": "IGCSE",
+      "subject": "Chemistry",
+      "label": "Chemistry — Modular 2024, Unit 2",
+      "code": "4XCH1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-economics-17",
+      "level": "IGCSE",
+      "subject": "Economics",
+      "label": "Economics",
+      "code": "4EC1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-english-literature-16",
+      "level": "IGCSE",
+      "subject": "English Literature",
+      "label": "English Literature",
+      "code": "4ET1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-further-maths-19",
+      "level": "IGCSE",
+      "subject": "Further Maths",
+      "label": "Further Maths",
+      "code": "4PM1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-geography-19",
+      "level": "IGCSE",
+      "subject": "Geography",
+      "label": "Geography",
+      "code": "4GE1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-ict-17",
+      "level": "IGCSE",
+      "subject": "ICT",
+      "label": "ICT",
+      "code": "4IT1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-maths-a-18-foundation",
+      "level": "IGCSE",
+      "subject": "Maths",
+      "label": "Maths (Foundation)",
+      "code": "4MA1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-maths-a-18-higher",
+      "level": "IGCSE",
+      "subject": "Maths",
+      "label": "Maths (Higher)",
+      "code": "4MA1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-maths-a-modular-24-foundation-unit-1",
+      "level": "IGCSE",
+      "subject": "Maths",
+      "label": "Maths — Foundation, Unit 1",
+      "code": "4XMAF/4XMAH",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-maths-a-modular-24-foundation-unit-2",
+      "level": "IGCSE",
+      "subject": "Maths",
+      "label": "Maths — Foundation, Unit 2",
+      "code": "4XMAF/4XMAH",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-maths-a-modular-24-higher-unit-1",
+      "level": "IGCSE",
+      "subject": "Maths",
+      "label": "Maths — Higher, Unit 1",
+      "code": "4XMAF/4XMAH",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-maths-a-modular-24-higher-unit-2",
+      "level": "IGCSE",
+      "subject": "Maths",
+      "label": "Maths — Higher, Unit 2",
+      "code": "4XMAF/4XMAH",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-physics-19",
+      "level": "IGCSE",
+      "subject": "Physics",
+      "label": "Physics",
+      "code": "4PH1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-physics-modular-24-unit-1",
+      "level": "IGCSE",
+      "subject": "Physics",
+      "label": "Physics — Modular 2024, Unit 1",
+      "code": "4XPH1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-physics-modular-24-unit-2",
+      "level": "IGCSE",
+      "subject": "Physics",
+      "label": "Physics — Modular 2024, Unit 2",
+      "code": "4XPH1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-science-double-award-17-biology",
+      "level": "IGCSE",
+      "subject": "Science",
+      "label": "Science (Double Award) — Biology",
+      "code": "4SD0",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-science-double-award-17-chemistry",
+      "level": "IGCSE",
+      "subject": "Science",
+      "label": "Science (Double Award) — Chemistry",
+      "code": "4SD0",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-science-double-award-17-physics",
+      "level": "IGCSE",
+      "subject": "Science",
+      "label": "Science (Double Award) — Physics",
+      "code": "4SD0",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-english-language-a-16-paper-1-non-fiction-texts-and-transactional-writing",
+      "level": "IGCSE",
+      "subject": "English Language",
+      "label": "English Language A — Paper 1",
+      "code": "4EA1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-english-language-a-16-paper-2-poetry-and-prose-texts-and-imaginative-writing",
+      "level": "IGCSE",
+      "subject": "English Language",
+      "label": "English Language A — Paper 2",
+      "code": "4EA1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-english-language-a-16-paper-3-coursework",
+      "level": "IGCSE",
+      "subject": "English Language",
+      "label": "English Language A — Paper 3 (Coursework)",
+      "code": "4EA1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-maths-b-16",
+      "level": "IGCSE",
+      "subject": "Maths",
+      "label": "Maths B",
+      "code": "4MB1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-science-double-award-modular-24-biology-unit-1",
+      "level": "IGCSE",
+      "subject": "Science",
+      "label": "Science (Double Award) — Modular 2024, Biology Unit 1",
+      "code": "4XSD1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-science-double-award-modular-24-biology-unit-2",
+      "level": "IGCSE",
+      "subject": "Science",
+      "label": "Science (Double Award) — Modular 2024, Biology Unit 2",
+      "code": "4XSD1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-science-double-award-modular-24-chemistry-unit-1",
+      "level": "IGCSE",
+      "subject": "Science",
+      "label": "Science (Double Award) — Modular 2024, Chemistry Unit 1",
+      "code": "4XSD1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-science-double-award-modular-24-chemistry-unit-2",
+      "level": "IGCSE",
+      "subject": "Science",
+      "label": "Science (Double Award) — Modular 2024, Chemistry Unit 2",
+      "code": "4XSD1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-science-double-award-modular-24-physics-unit-1",
+      "level": "IGCSE",
+      "subject": "Science",
+      "label": "Science (Double Award) — Modular 2024, Physics Unit 1",
+      "code": "4XSD1",
+      "status": "full"
+    },
+    {
+      "slug": "igcse-science-double-award-modular-24-physics-unit-2",
+      "level": "IGCSE",
+      "subject": "Science",
+      "label": "Science (Double Award) — Modular 2024, Physics Unit 2",
+      "code": "4XSD1",
+      "status": "full"
+    }
+  ]
+}

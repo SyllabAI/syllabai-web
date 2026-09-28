@@ -1,0 +1,193 @@
+"use client";
+
+/**
+ * Flashcard deck player — the SME loop (research §7.1, figure 12): flip
+ * card, Still learning / Know rating, deck progress, shuffle + restart.
+ * Ratings persist to the browser-local SIMULATED overlay and drive the
+ * sub-topic rings in the sidebar.
+ */
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { ChevronLeft, RotateCcw, Shuffle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Markdown } from "@/components/markdown";
+import { rateFlashcard, useCourseProgress, type Course, type FlashcardRating } from "@/lib/progress";
+import { cn } from "@/lib/utils";
+
+export interface DeckCard {
+  id: string;
+  front: string;
+  back: string;
+  sourceNoteId: string | null;
+  sourceTitle: string | null;
+  provenanceTier: string;
+}
+
+export function DeckPlayer({
+  course,
+  subtopicCode,
+  cards,
+}: {
+  course: Course;
+  subtopicCode: string;
+  cards: DeckCard[];
+}) {
+  const progress = useCourseProgress(course);
+  const [order, setOrder] = useState<string[]>(() => cards.map((c) => c.id));
+  const [pos, setPos] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+
+  const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
+  const current = order.length > 0 ? byId.get(order[Math.min(pos, order.length - 1)]) : undefined;
+  const rated = Object.entries(progress.flashcards).filter(
+    ([, v]) => v.subtopic === subtopicCode,
+  );
+  const stillLearning = rated.filter(([, v]) => v.rating === "still-learning").length;
+  const know = rated.filter(([, v]) => v.rating === "know").length;
+
+  const advance = (rating: FlashcardRating | null) => {
+    if (!current) return;
+    if (rating) rateFlashcard(course, current.id, subtopicCode, rating);
+    setFlipped(false);
+    setPos((p) => (p + 1 < order.length ? p + 1 : 0));
+  };
+
+  const shuffle = () => {
+    // deterministic reshuffle so hydration stays stable
+    let seed = cards.length * 7919 + 17;
+    const arr = [...order];
+    for (let i = arr.length - 1; i > 0; i--) {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      const j = seed % (i + 1);
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    setOrder(arr);
+    setPos(0);
+    setFlipped(false);
+  };
+
+  if (!current) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">This deck is empty.</CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* SME deck header: progress + counters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button asChild size="sm" variant="ghost" className="gap-1.5 text-xs">
+          <Link href={`/courses/${course}/flashcards`}>
+            <ChevronLeft className="size-3.5" aria-hidden /> All decks
+          </Link>
+        </Button>
+        <span className="text-sm tabular-nums text-muted-foreground">
+          {pos + 1}/{order.length}
+        </span>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="border-destructive/30 text-[10px] text-destructive">
+            {stillLearning} still learning
+          </Badge>
+          <Badge variant="outline" className="border-success/30 text-[10px] text-success">
+            {know} know
+          </Badge>
+          <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={shuffle}>
+            <Shuffle className="size-3.5" aria-hidden /> Shuffle
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="gap-1.5 text-xs"
+            onClick={() => {
+              setPos(0);
+              setFlipped(false);
+            }}
+          >
+            <RotateCcw className="size-3.5" aria-hidden /> Restart
+          </Button>
+        </div>
+      </div>
+
+      <div className="h-1 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-300"
+          style={{ width: `${((pos + 1) / order.length) * 100}%` }}
+        />
+      </div>
+
+      {/* the card */}
+      <Card
+        className="min-h-64 cursor-pointer select-none transition-shadow hover:shadow-md"
+        onClick={() => setFlipped((f) => !f)}
+        role="button"
+        tabIndex={0}
+        aria-label={flipped ? "Show front" : "Reveal answer"}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setFlipped((f) => !f);
+          }
+        }}
+      >
+        <CardContent className="flex min-h-64 flex-col justify-between gap-4 p-6">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline" className="text-[10px]">
+              {current.provenanceTier}
+            </Badge>
+            <span>{flipped ? "Back" : "Front"}</span>
+            {current.sourceTitle && (
+              <Link
+                href={current.sourceNoteId ? `/courses/${course}/revision-notes/${current.sourceNoteId}` : "#"}
+                className="ml-auto truncate text-primary underline-offset-2 hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                from “{current.sourceTitle}”
+              </Link>
+            )}
+          </div>
+          <div className="flex flex-1 items-center justify-center py-4">
+            {flipped ? (
+              <Markdown className="text-center">{current.back}</Markdown>
+            ) : (
+              // fronts carry **bold** key terms + $math$ too (13.7k cards) —
+              // render through the corpus Markdown, not plain text
+              <Markdown className="text-center" pClassName="text-lg font-medium leading-relaxed">
+                {current.front}
+              </Markdown>
+            )}
+          </div>
+          <p className="text-center text-xs text-muted-foreground">
+            {flipped ? "rate your recall below" : "tap the card to flip"}
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* rating controls — enabled once revealed (SME: rate after seeing back) */}
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          size="lg"
+          variant="outline"
+          className={cn("border-destructive/30 text-destructive hover:bg-destructive/10")}
+          disabled={!flipped}
+          onClick={() => advance("still-learning")}
+        >
+          Still learning
+        </Button>
+        {/* Know button: bg-success resolves to the theme's action-green
+            (SME emerald-700 5.5:1 / QG fern) — WCAG AA on white (P1-4 fix) */}
+        <Button
+          size="lg"
+          className="bg-success text-white hover:bg-success/90"
+          disabled={!flipped}
+          onClick={() => advance("know")}
+        >
+          Know
+        </Button>
+      </div>
+    </div>
+  );
+}
