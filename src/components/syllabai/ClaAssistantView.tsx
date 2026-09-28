@@ -26,29 +26,38 @@
  *   read-only tool invocations the server made, never their raw output.
  * - The transcript lives in React state lifted to the page so it survives tab
  *   switches, exactly like the free Tutor.
+ * - Look (web-bb263437, TUTOR-CLA-LOOK): the surface follows the operator's
+ *   Save My Exams explain-panel reference — an amber honesty banner under the
+ *   identity strip, anchor + mode as pill segments (the s129 overlay
+ *   vocabulary, now shared), chat-style transcript bubbles, and the same
+ *   rounded-2xl composer card as the Tutor (context pill + circular send).
+ *   Presentation only — the §3 explicit-context contract, the §7 gate and the
+ *   §19 footer are untouched.
  */
 
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertTriangle,
+  ArrowUp,
   BookOpenCheck,
+  Compass,
+  FileText,
   GraduationCap,
   Lightbulb,
   ListChecks,
   Lock,
   Quote,
-  Send,
+  Sparkles,
   Wrench,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { ApiError, aiAskErrorMessage, api } from "@/lib/api";
 import type { ClaAnswerView, ClaMode, StudentQuestionView } from "@/lib/types";
 import { ChatMarkdown } from "@/components/syllabai/ChatMarkdown";
@@ -66,6 +75,19 @@ const MODES: { value: ClaMode; label: string; hint: string; icon: typeof Lightbu
   { value: "SUMMARIZE", label: "Summarize", hint: "Compress the whole spec structure", icon: ListChecks },
   { value: "HINT", label: "Hint", hint: "Scaffolding only — never the answer", icon: Lightbulb },
   { value: "CHECK", label: "Check", hint: "Full feedback after your attempt", icon: BookOpenCheck },
+];
+
+/** Context-kind pill vocabulary (web-bb263437) — the s129 overlay pill look,
+ *  full names ride the title attribute. */
+const CONTEXT_KINDS: {
+  value: "KG_TOPIC" | "PAST_PAPER_QUESTION" | "QUESTION_PART" | "SMART_LESSON";
+  label: string;
+  title: string;
+}[] = [
+  { value: "KG_TOPIC", label: "Topic", title: "Topic (specification) — anchored to a validated KG topic" },
+  { value: "SMART_LESSON", label: "Lesson", title: "Smart lesson — your own next action rides along" },
+  { value: "PAST_PAPER_QUESTION", label: "Question", title: "Past-paper question — served through the full serving gate" },
+  { value: "QUESTION_PART", label: "Part", title: "Question part — resolved on the question's current validated version" },
 ];
 
 /** topic-anchored kinds share the root+topic references (KG_TOPIC, SMART_LESSON) */
@@ -109,24 +131,33 @@ export function AnswerBody({ result }: { result: ClaAnswerView }) {
       {result.citations.length > 0 && (
         <div className="space-y-1.5">
           <Separator />
-          {result.citations.map((c) => (
-            <div key={c.index} id={`cla-cite-${result.context.reference}-${c.index}`} className="flex items-start gap-2 text-xs text-muted-foreground">
-              <Quote className="mt-0.5 h-3 w-3 shrink-0" />
-              <span>
-                <span className="font-semibold text-foreground">[{c.index}]</span> {c.label}
+          {/* citation pills — the shared look (web-bb263437): same anchor ids
+              and hrefs as before, so marker jumps are unchanged */}
+          <div className="flex flex-wrap gap-1.5">
+            {result.citations.map((c) => (
+              <div
+                key={c.index}
+                id={`cla-cite-${result.context.reference}-${c.index}`}
+                className="flex max-w-full items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40"
+              >
+                <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                  {c.index}
+                </span>
+                <FileText className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="max-w-[14rem] truncate font-medium text-foreground">{c.label}</span>
                 {c.sourceType === "MARK_SCHEME" && (
-                  <Badge variant="outline" className="ml-1.5 px-1 py-0 text-[10px]">
+                  <Badge variant="outline" className="px-1 py-0 text-[10px]">
                     mark scheme
                   </Badge>
                 )}
                 {c.deepLink && c.nodeId && (
-                  <a href={c.deepLink} className="ml-1 underline hover:text-foreground" target="_blank" rel="noreferrer">
+                  <a href={c.deepLink} className="shrink-0 underline hover:text-foreground" target="_blank" rel="noreferrer">
                     source
                   </a>
                 )}
-              </span>
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -276,67 +307,93 @@ export function ClaAssistantView({
         ? !questionId || !partId
         : !questionId);
 
+  const selectedTopic = topicOptions.find((t) => t.id === topicNodeId) ?? null;
+  const activeMode = MODES.find((m) => m.value === mode) ?? MODES[0];
+  // the composer's anchor summary — one honest line for “what am I anchored to”
+  const anchorSummary = isTopicKind(contextKind)
+    ? selectedTopic
+      ? `${selectedTopic.code} · ${selectedTopic.title}`
+      : "No topic picked yet"
+    : contextKind === "QUESTION_PART"
+      ? selectedPart
+        ? `Question ${selectedQuestion?.externalRef ?? ""} · part (${selectedPart.label})`
+        : "No question part picked yet"
+      : selectedQuestion
+        ? `${selectedQuestion.externalRef ?? selectedQuestion.id.slice(0, 8)} · ${selectedQuestion.marks} marks`
+        : "No question picked yet";
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-      <Card>
-        <CardContent className="space-y-4 pt-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Context kind</Label>
-              <Select value={contextKind} onValueChange={(v) => setContextKind(v as typeof contextKind)}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="KG_TOPIC">Topic (specification)</SelectItem>
-                  <SelectItem value="SMART_LESSON">Smart lesson</SelectItem>
-                  <SelectItem value="PAST_PAPER_QUESTION">Past-paper question</SelectItem>
-                  <SelectItem value="QUESTION_PART">Question part</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Mode</Label>
-              <Select value={mode} onValueChange={(v) => setMode(v as ClaMode)}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MODES.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>
-                      {m.label} — {m.hint}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+      <div className="flex min-h-[34rem] flex-col overflow-hidden rounded-xl border bg-background">
+        {/* identity strip — the shared chat-canvas header (web-bb263437) */}
+        <div className="flex items-center gap-2.5 border-b px-4 py-3">
+          <span
+            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-primary-foreground"
+            aria-hidden="true"
+          >
+            <Sparkles className="size-4" />
+          </span>
+          <div className="leading-tight">
+            <p className="text-sm font-semibold">Contextual assistant</p>
+            <p className="text-[11px] text-muted-foreground">
+              you pick the context — it answers from validated course material
+            </p>
+          </div>
+        </div>
+
+        {/* amber honesty banner — the Save My Exams reference's signature */}
+        <div className="flex items-start gap-2 border-b bg-amber-50 px-4 py-2.5 text-xs leading-relaxed text-amber-800 dark:bg-amber-950/60 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <p>
+            The assistant can make mistakes. It answers only from validated course
+            material, with citations — always check them.
+          </p>
+        </div>
+
+        {/* anchor bar — the §3 explicit-context contract as pill segments +
+            compact selects (the s129 overlay vocabulary, now shared) */}
+        <div className="space-y-2.5 border-b px-4 py-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Anchor
+            </span>
+            {CONTEXT_KINDS.map((k) => (
+              <button
+                key={k.value}
+                type="button"
+                onClick={() => setContextKind(k.value)}
+                aria-pressed={contextKind === k.value}
+                title={k.title}
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+                  contextKind === k.value
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border text-muted-foreground hover:border-primary/40",
+                )}
+              >
+                {k.label}
+              </button>
+            ))}
           </div>
 
           {isTopicKind(contextKind) ? (
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">
-                {contextKind === "SMART_LESSON"
-                  ? "Anchored lesson topic (your own next action rides along)"
-                  : "Anchored topic (server resolves VALIDATED-only)"}
-              </Label>
-              <Select value={topicNodeId} onValueChange={setTopicNodeId}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Pick the topic you are studying" />
-                </SelectTrigger>
-                <SelectContent className="max-h-72">
-                  {topicOptions.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.code} — {t.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <Select value={topicNodeId} onValueChange={setTopicNodeId}>
+              <SelectTrigger
+                className="h-8 w-full text-xs"
+                aria-label="Anchored topic (server resolves VALIDATED-only)"
+              >
+                <SelectValue placeholder="Pick the topic you are studying" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {topicOptions.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.code} — {t.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">
-                Anchored question (served through the full serving gate)
-              </Label>
               <Select
                 value={questionId}
                 onValueChange={(v) => {
@@ -344,7 +401,10 @@ export function ClaAssistantView({
                   setPartId("");
                 }}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger
+                  className="h-8 w-full text-xs"
+                  aria-label="Anchored question (served through the full serving gate)"
+                >
                   <SelectValue
                     placeholder={questionsLoading ? "Loading questions…" : "Pick the question you are working on"}
                   />
@@ -358,7 +418,7 @@ export function ClaAssistantView({
                 </SelectContent>
               </Select>
               {selectedQuestion && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   {selectedQuestion.marks} marks · {selectedQuestion.type}
                   {selectedQuestion.stem ? ` · ${(selectedQuestion.stem ?? "").slice(0, 120)}` : ""}
                 </p>
@@ -368,11 +428,11 @@ export function ClaAssistantView({
 
           {contextKind === "QUESTION_PART" && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">
-                Anchored part (resolved on the question's CURRENT validated version)
-              </Label>
               <Select value={partId} onValueChange={setPartId} disabled={!selectedQuestion}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger
+                  className="h-8 w-full text-xs"
+                  aria-label="Anchored part (resolved on the question's CURRENT validated version)"
+                >
                   <SelectValue
                     placeholder={
                       !selectedQuestion
@@ -390,7 +450,7 @@ export function ClaAssistantView({
                 </SelectContent>
               </Select>
               {selectedPart && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   Part ({selectedPart.label}) · {selectedPart.marks} marks
                   {selectedPart.prompt ? ` · ${selectedPart.prompt.slice(0, 120)}` : ""}
                 </p>
@@ -398,47 +458,40 @@ export function ClaAssistantView({
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="cla-question" className="text-xs text-muted-foreground">
-              Your question in this context
-            </Label>
-              <span className="text-[11px] text-muted-foreground">
-                {draft.length}/{MAX_QUESTION_CHARS}
-              </span>
-            </div>
-            <Textarea
-              id="cla-question"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value.slice(0, MAX_QUESTION_CHARS))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              placeholder={
-                mode === "CHECK"
-                  ? "Describe your answer — CHECK gives full feedback after an attempt"
-                  : mode === "HINT"
-                    ? "Ask for a hint (scaffolding, never the answer)"
-                    : "Ask about the anchored context…"
-              }
-              rows={3}
-            />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Mode
+            </span>
+            {MODES.map((m) => {
+              const Icon = m.icon;
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setMode(m.value)}
+                  aria-pressed={mode === m.value}
+                  title={m.hint}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+                    mode === m.value
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border text-muted-foreground hover:border-primary/40",
+                  )}
+                >
+                  <Icon className="size-3" aria-hidden="true" />
+                  {m.label}
+                </button>
+              );
+            })}
+            <span className="text-[11px] text-muted-foreground">{activeMode.hint}</span>
           </div>
-          <div className="flex justify-end">
-            <Button size="sm" onClick={() => void send()} disabled={disabled} className="gap-1.5">
-              <Send className="h-3.5 w-3.5" /> {busy ? "Grounding…" : "Ask"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      <ScrollArea className="max-h-[52vh] pr-2">
-        <div className="space-y-3">
+        {/* transcript — chat-first like the reference panel */}
+        <ScrollArea className="h-[46vh] min-h-80 flex-1">
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-4">
           {messages.length === 0 && (
-            <p className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
+            <p className="py-6 text-center text-xs leading-relaxed text-muted-foreground">
               Every answer is grounded in validated course material anchored to the context you
               picked — citations point at the real sources, and nothing is served that the
               content does not support.
@@ -447,7 +500,7 @@ export function ClaAssistantView({
           {messages.map((m, i) =>
             m.kind === "user" ? (
               <div key={i} className="flex justify-end">
-                <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3.5 py-2 text-sm text-primary-foreground">
+                <div className="max-w-[85%] rounded-2xl rounded-br-md bg-muted px-3.5 py-2 text-sm">
                   {m.text}
                 </div>
               </div>
@@ -522,8 +575,69 @@ export function ClaAssistantView({
             </p>
           )}
           <div ref={bottomRef} />
+          </div>
+        </ScrollArea>
+
+        {/* composer — the shared rounded-2xl card: anchor summary pill,
+            borderless field, circular send (web-bb263437). The §3 contract's
+            validation rides the same send() path + disabled logic as before. */}
+        <div className="border-t bg-background p-3 sm:p-4">
+          <div className="mx-auto w-full max-w-2xl">
+            <div className="rounded-2xl border bg-background shadow-sm transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/15">
+              <div className="flex items-center px-3.5 pt-3">
+                <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium">
+                  <Compass className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <span className="truncate">{anchorSummary}</span>
+                </span>
+              </div>
+              <Textarea
+                id="cla-question"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value.slice(0, MAX_QUESTION_CHARS))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                placeholder={
+                  mode === "CHECK"
+                    ? "Describe your answer — CHECK gives full feedback after an attempt"
+                    : mode === "HINT"
+                      ? "Ask for a hint (scaffolding, never the answer)"
+                      : "Ask about the anchored context…"
+                }
+                aria-label="Your question in this context"
+                rows={2}
+                maxLength={MAX_QUESTION_CHARS}
+                className="resize-none border-0 bg-transparent px-3.5 py-2.5 text-sm shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-transparent"
+              />
+              <div className="flex items-center justify-between gap-2 px-3 pb-3">
+                <span className="text-[11px] text-muted-foreground">
+                  Enter to ask · Shift+Enter for a new line
+                </span>
+                <span className="flex items-center gap-2">
+                  <span aria-live="polite" className="text-[11px] tabular-nums text-muted-foreground">
+                    {draft.length}/{MAX_QUESTION_CHARS}
+                  </span>
+                  <Button
+                    onClick={() => void send()}
+                    disabled={disabled}
+                    aria-label="Ask the contextual assistant"
+                    className="size-9 shrink-0 rounded-full"
+                  >
+                    {busy ? (
+                      <span className="text-xs">…</span>
+                    ) : (
+                      <ArrowUp className="size-4" aria-hidden="true" />
+                    )}
+                  </Button>
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

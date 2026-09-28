@@ -48,6 +48,7 @@ import {
   BookMarked,
   BookOpenText,
   GraduationCap,
+  Info,
   ListChecks,
   Loader2,
   Lock,
@@ -212,6 +213,16 @@ export function NoteClaOverlay({
             </SheetDescription>
           </SheetHeader>
 
+          {/* amber honesty banner — the Save My Exams reference panel
+              (web-bb263437): same family as the assistant tab */}
+          <div className="flex items-start gap-2 border-b bg-amber-50 px-4 py-2.5 text-xs leading-relaxed text-amber-800 dark:bg-amber-950/60 dark:text-amber-200">
+            <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <p>
+              The assistant can make mistakes. It answers only from this note and
+              validated material — check the citations on every answer.
+            </p>
+          </div>
+
           {/* server-anchored context card: the note IS the anchor — the server
               resolves it (NOTE_SECTION) and leads the evidence with its own
               sections; the spec codes below are informational badges (the
@@ -314,7 +325,7 @@ export function NoteClaOverlay({
               {messages.map((m, i) =>
                 m.kind === "user" ? (
                   <div key={i} className="flex justify-end">
-                    <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3.5 py-2 text-sm text-primary-foreground">
+                    <div className="max-w-[85%] rounded-2xl rounded-br-md bg-muted px-3.5 py-2 text-sm">
                       {m.text}
                     </div>
                   </div>

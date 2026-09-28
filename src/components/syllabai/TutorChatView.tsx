@@ -39,6 +39,13 @@
  *   question) — click one to resume it, delete it when done, or start a New
  *   chat. The transcript always follows the server: switching away and back
  *   loses nothing, because every completed ask is persisted.
+ * - Look (web-bb263437, TUTOR-CLA-LOOK): the surface follows the operator's
+ *   itutor.study chat-home reference — assistant turns render as avatar +
+ *   name rows on the canvas (no bubble), user turns as muted bubbles with
+ *   timestamps, citations as pills, the composer as a rounded-2xl card with
+ *   the subject context pill and a circular send, and the empty state greets
+ *   by name over pill starters. Presentation only — every s139–s143 behavior
+ *   above is untouched.
  */
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
@@ -54,12 +61,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { AlertTriangle, ExternalLink, GraduationCap, History, MessageSquarePlus, Quote, RotateCcw, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowUp, ExternalLink, FileText, GraduationCap, History, MessageSquarePlus, Quote, RotateCcw, Trash2 } from "lucide-react";
 import { aiAskErrorMessage, api, apiPath, currentUser } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
 import type { TutorAnswerView, TutorCitation, TutorHistoryTurn, TutorSessionSummary, TutorSessionTurnView } from "@/lib/types";
@@ -180,11 +185,34 @@ export function turnsLabel(turnCount: number): string {
   return turnCount === 1 ? "1 turn" : `${turnCount} turns`;
 }
 
+/** Look-wave helpers (web-bb263437) — the itutor.study reference's time-of-day
+ *  greeting and its "Sep 27 · 9:41 PM" message stamps. */
+function greetingFor(at: Date): string {
+  const h = at.getHours();
+  if (h < 5) return "Working late";
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function formatChatTime(at: number): string {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const today = new Date();
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  return sameDay ? time : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} · ${time}`;
+}
+
 export function TutorChatView({
   messages,
   setMessages,
   draft = null,
   onDraftConsumed,
+  subjectName = null,
 }: {
   messages: TutorChatMessage[];
   setMessages: Dispatch<SetStateAction<TutorChatMessage[]>>;
@@ -192,6 +220,10 @@ export function TutorChatView({
    *  editable, never auto-sent. Consumed once loaded into the input. */
   draft?: string | null;
   onDraftConsumed?: () => void;
+  /** The selected subject's display name — rides the composer's context pill
+   *  (the itutor.study "Chemistry" affordance, honestly scoped: the tutor
+   *  answers inside the active curriculum). Null hides the pill. */
+  subjectName?: string | null;
 }) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -226,6 +258,8 @@ export function TutorChatView({
   const sessionIdRef = useRef<string | null>(null);
   const hydratedRef = useRef(false);
   const teacher = isTeacherLike();
+  // Look wave: the greeting's first-name segment (empty session → no name)
+  const firstName = (currentUser()?.displayName ?? "").trim().split(/\s+/)[0] || null;
 
   // s140 refresh hydration: pick up the stored session once per mount when
   // the in-memory transcript is empty. Failures are silent by design — a
@@ -421,48 +455,13 @@ export function TutorChatView({
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="flex flex-col gap-1 pt-6">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <GraduationCap className="size-4 text-primary" aria-hidden="true" />
-              <p className="text-sm font-semibold">Ask the SyllabAI tutor</p>
-            </div>
-            {/* s139: with working memory, starting fresh needs an explicit
-                affordance — a stale conversation otherwise keeps enriching
-                retrieval with off-topic turns after a topic switch. s140: it
-                also abandons the §22 server session (the next ask creates a
-                fresh one lazily — no empty rows). */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1.5 px-2 text-xs text-muted-foreground"
-              onClick={newChat}
-              disabled={sending || messages.length === 0}
-              aria-label="Start a new conversation (clears this chat)"
-              title="Start a new conversation (clears this chat)"
-            >
-              <MessageSquarePlus className="size-3.5" aria-hidden="true" />
-              New chat
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Grounded answers with verbatim citations from validated course content —
-            mark schemes, question papers and the specification. The tutor remembers
-            this conversation while you stay in it, picks up where you left off when
-            you come back, and knows what you’ve already practised on a topic — so
-            follow-ups like “why is that?” just work.
-          </p>
-        </CardContent>
-      </Card>
-
       {/* s143: ChatGPT-style two-pane layout — the Conversations pane
           (server-owned list of the learner's §22 chats) beside the chat
-          itself. Stacks above the chat on narrow screens, same as the
+          canvas. Stacks above the chat on narrow screens, same as the
           Exam Questions sidebar. */}
       <div className="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside
-          className="space-y-3 rounded-lg border bg-background p-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto"
+          className="space-y-3 rounded-xl border bg-background p-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto"
           aria-label="Your conversations"
         >
           <div className="flex items-center justify-between gap-2">
@@ -533,9 +532,45 @@ export function TutorChatView({
           </div>
         </aside>
 
-        <div className="rounded-lg border bg-background">
-        <ScrollArea className="h-[52vh] min-h-80">
-          <div ref={transcriptRef} className="flex flex-col gap-4 p-4" aria-live="polite">
+        {/* chat canvas — the itutor.study look (web-bb263437): identity
+            strip, centered transcript column with avatar rows, composer card */}
+        <div className="flex min-h-[34rem] flex-col overflow-hidden rounded-xl border bg-background">
+          {/* s139: with working memory, starting fresh needs an explicit
+              affordance — a stale conversation otherwise keeps enriching
+              retrieval with off-topic turns after a topic switch. s140: it
+              also abandons the §22 server session (the next ask creates a
+              fresh one lazily — no empty rows). */}
+          <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <span
+                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-primary-foreground"
+                aria-hidden="true"
+              >
+                <GraduationCap className="size-4" />
+              </span>
+              <div className="leading-tight">
+                <p className="text-sm font-semibold">SyllabAI tutor</p>
+                <p className="text-[11px] text-muted-foreground">
+                  answers only from validated course content
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 px-2 text-xs text-muted-foreground"
+              onClick={newChat}
+              disabled={sending || messages.length === 0}
+              aria-label="Start a new conversation (clears this chat)"
+              title="Start a new conversation (clears this chat)"
+            >
+              <MessageSquarePlus className="size-3.5" aria-hidden="true" />
+              New chat
+            </Button>
+          </div>
+
+        <ScrollArea className="h-[52vh] min-h-80 flex-1">
+          <div ref={transcriptRef} className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-4 py-5" aria-live="polite">
             {restoredFrom && messages.length > 0 && (
               <div className="flex items-center gap-1.5 self-center text-[11px] text-muted-foreground">
                 <History className="size-3" aria-hidden="true" />
@@ -543,23 +578,35 @@ export function TutorChatView({
               </div>
             )}
             {messages.length === 0 && (
-              <div className="flex flex-col items-center gap-3 py-8 text-center">
-                <GraduationCap className="size-8 text-muted-foreground/60" aria-hidden="true" />
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  Ask a chemistry question — the tutor answers only from grounded course
-                  evidence and cites every source.
-                </p>
-                <div className="flex flex-col gap-2 pt-2">
+              /* the itutor.study hero: greet by name, offer pill starters.
+                 The copy keeps the honest grounding promise (F-041/F-043). */
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <span
+                  className="flex size-11 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-sm"
+                  aria-hidden="true"
+                >
+                  <GraduationCap className="size-6" />
+                </span>
+                <div className="space-y-1">
+                  <h2 className="text-xl font-semibold tracking-tight">
+                    {greetingFor(new Date())}
+                    {firstName ? `, ${firstName}` : ""}
+                  </h2>
+                  <p className="mx-auto max-w-md text-sm text-muted-foreground">
+                    Ask a chemistry question — the tutor answers only from grounded
+                    course evidence and cites every source.
+                  </p>
+                </div>
+                <div className="flex flex-wrap justify-center gap-2 pt-1">
                   {SUGGESTED_QUESTIONS.map((q) => (
-                    <Button
+                    <button
                       key={q}
-                      variant="outline"
-                      size="sm"
-                      className="justify-start text-left font-normal"
+                      type="button"
                       onClick={() => setInput(q)}
+                      className="rounded-full border bg-background px-3.5 py-1.5 text-xs text-muted-foreground shadow-sm transition-colors hover:border-primary/40 hover:text-foreground"
                     >
                       {q}
-                    </Button>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -568,10 +615,13 @@ export function TutorChatView({
             {messages.map((message, index) => {
               if (message.kind === "user") {
                 return (
-                  <div key={index} className="flex justify-end">
-                    <div className="max-w-[85%] rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground whitespace-pre-wrap">
+                  <div key={index} className="flex flex-col items-end gap-1">
+                    <div className="max-w-[85%] rounded-2xl rounded-br-md bg-muted px-3.5 py-2 text-sm whitespace-pre-wrap">
                       {message.text}
                     </div>
+                    <span className="pr-1 text-[10px] text-muted-foreground">
+                      {formatChatTime(message.at)}
+                    </span>
                   </div>
                 );
               }
@@ -605,6 +655,7 @@ export function TutorChatView({
                   key={index}
                   messageIndex={index}
                   result={message.result}
+                  at={message.at}
                   highlightedCitation={highlightedCitation}
                   teacher={teacher}
                   onCitationJump={jumpToCitation}
@@ -625,45 +676,68 @@ export function TutorChatView({
           </div>
         </ScrollArea>
 
-        <Separator />
-
-        <div className="flex flex-col gap-2 p-3">
-          <div className="flex items-end gap-2">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  send(input);
-                }
-              }}
-              placeholder="Ask about a topic, a past-paper question, or a mark scheme…"
-              aria-label="Your question for the tutor"
-              rows={2}
-              maxLength={MAX_QUESTION_CHARS + 50}
-              className="max-h-32 resize-none"
-            />
-            <Button
-              onClick={() => send(input)}
-              disabled={canSend}
-              aria-label="Send question to the tutor"
-              className="h-10 gap-1.5"
-            >
-              <Send className="size-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Ask</span>
-            </Button>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Enter to ask · Shift+Enter for a new line</span>
-            <span aria-live="polite">
-              {input.length}/{MAX_QUESTION_CHARS}
-              {input.length > MAX_QUESTION_CHARS && (
-                <span className="ml-1 text-rose-600 dark:text-rose-400">
-                  too long — the backend rejects over {MAX_QUESTION_CHARS} characters
-                </span>
+        {/* composer — the itutor.study card: context pill, borderless field,
+            circular send (web-bb263437). All s139–s143 send semantics ride the
+            same send() path as before. */}
+        <div className="border-t bg-background p-3 sm:p-4">
+          <div className="mx-auto w-full max-w-2xl space-y-2">
+            <div className="rounded-2xl border bg-background shadow-sm transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/15">
+              {subjectName && (
+                <div className="flex items-center px-3.5 pt-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium">
+                    <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                    {subjectName}
+                  </span>
+                </div>
               )}
-            </span>
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send(input);
+                  }
+                }}
+                placeholder={
+                  subjectName
+                    ? `Ask about ${subjectName}, or paste a homework question…`
+                    : "Ask about a topic, a past-paper question, or a mark scheme…"
+                }
+                aria-label="Your question for the tutor"
+                rows={2}
+                maxLength={MAX_QUESTION_CHARS + 50}
+                className="resize-none border-0 bg-transparent px-3.5 py-2.5 text-sm shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-transparent"
+              />
+              <div className="flex items-center justify-between gap-2 px-3 pb-3">
+                <span className="text-[11px] text-muted-foreground">
+                  Enter to ask · Shift+Enter for a new line
+                </span>
+                <span className="flex items-center gap-2">
+                  <span aria-live="polite" className="text-[11px] tabular-nums text-muted-foreground">
+                    {input.length}/{MAX_QUESTION_CHARS}
+                    {input.length > MAX_QUESTION_CHARS && (
+                      <span className="ml-1 text-rose-600 dark:text-rose-400">
+                        too long — the backend rejects over {MAX_QUESTION_CHARS} characters
+                      </span>
+                    )}
+                  </span>
+                  <Button
+                    onClick={() => send(input)}
+                    disabled={canSend}
+                    aria-label="Send question to the tutor"
+                    className="size-9 shrink-0 rounded-full"
+                  >
+                    <ArrowUp className="size-4" aria-hidden="true" />
+                  </Button>
+                </span>
+              </div>
+            </div>
+            <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+              The tutor remembers this conversation, picks up where you left off when you
+              come back, and cites every source — mark schemes, question papers and the
+              specification. Always double-check important facts.
+            </p>
           </div>
         </div>
         </div>
@@ -723,9 +797,9 @@ function ConversationRow({
   return (
     <div
       className={
-        "flex items-start gap-1 rounded-md border px-2 py-1.5 transition-colors " +
+        "flex items-start gap-1 rounded-lg border px-2 py-1.5 transition-colors " +
         (active
-          ? "border-primary bg-primary/10"
+          ? "border-primary/40 bg-primary/10"
           : "border-transparent bg-background hover:bg-muted/60")
       }
     >
@@ -768,19 +842,21 @@ function ConversationRow({
 function AssistantMessage({
   messageIndex,
   result,
+  at,
   highlightedCitation,
   teacher,
   onCitationJump,
 }: {
   messageIndex: number;
   result: TutorAnswerView;
+  at: number;
   highlightedCitation: string | null;
   teacher: boolean;
   onCitationJump: (messageIndex: number, citation: TutorCitation) => void;
 }) {
   if (result.refused) {
     return (
-      <div className="max-w-[92%] rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+      <div className="max-w-[92%] rounded-2xl border border-amber-300 bg-amber-50 px-3.5 py-3 text-sm dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
         <p className="flex items-center gap-1.5 font-medium">
           <AlertTriangle className="size-4" aria-hidden="true" />
           No grounded evidence found
@@ -791,7 +867,7 @@ function AssistantMessage({
           (e.g. “moles”, “bonding”) or rephrasing the question.
         </p>
         <p className="mt-1.5 text-[11px] opacity-60">
-          Deterministic refusal — no model was called.
+          Deterministic refusal — no model was called · {formatChatTime(at)}
         </p>
       </div>
     );
@@ -799,10 +875,21 @@ function AssistantMessage({
 
   return (
     <div className="flex flex-col items-start gap-2">
-      {/* s138: the answer renders as GFM markdown + KaTeX/mhchem math; the
-          [n] markers ride the pipeline as citation:// links and come out
-          through renderCitation — same chips, same jump behavior as before */}
-      <div className="max-w-[92%] rounded-lg border bg-muted/40 px-3 py-2.5">
+      {/* the itutor.study assistant row: avatar + name on the canvas — the
+          answer itself renders without a bubble (web-bb263437) */}
+      <div className="flex items-center gap-2.5">
+        <span
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-primary-foreground"
+          aria-hidden="true"
+        >
+          <GraduationCap className="size-4" />
+        </span>
+        <p className="text-xs font-semibold">SyllabAI</p>
+      </div>
+      <div className="w-full space-y-2.5 sm:pl-9">
+        {/* s138: the answer renders as GFM markdown + KaTeX/mhchem math; the
+            [n] markers ride the pipeline as citation:// links and come out
+            through renderCitation — same chips, same jump behavior as before */}
         <ChatMarkdown
           renderCitation={(marker) => (
             <CitationMarker
@@ -817,40 +904,42 @@ function AssistantMessage({
         >
           {result.answer}
         </ChatMarkdown>
+
+        {result.topics.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {result.topics.map((topic) => (
+              <Badge key={topic.code} variant="secondary" className="text-[10px] font-normal">
+                {topic.code} · {topic.title}
+              </Badge>
+            ))}
+          </div>
+        )}
+
+        {result.citations.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+              <Quote className="size-3" aria-hidden="true" />
+              Sources ({result.citations.length})
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {result.citations.map((citation) => (
+                <CitationCard
+                  key={citation.index}
+                  id={`citation-${messageIndex}-${citation.index}`}
+                  citation={citation}
+                  highlighted={highlightedCitation === `citation-${messageIndex}-${citation.index}`}
+                  teacher={teacher}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <p className="text-[11px] text-muted-foreground">
+          {result.model ?? "no model"} · {result.provider} · {(result.latencyMs / 1000).toFixed(1)}s ·{" "}
+          {result.evidenceCount} evidence item{result.evidenceCount === 1 ? "" : "s"} · {formatChatTime(at)}
+        </p>
       </div>
-
-      {result.topics.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {result.topics.map((topic) => (
-            <Badge key={topic.code} variant="secondary" className="text-[10px] font-normal">
-              {topic.code} · {topic.title}
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      {result.citations.length > 0 && (
-        <div className="w-full max-w-[92%] space-y-1.5">
-          <p className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-            <Quote className="size-3" aria-hidden="true" />
-            Sources ({result.citations.length})
-          </p>
-          {result.citations.map((citation) => (
-            <CitationCard
-              key={citation.index}
-              id={`citation-${messageIndex}-${citation.index}`}
-              citation={citation}
-              highlighted={highlightedCitation === `citation-${messageIndex}-${citation.index}`}
-              teacher={teacher}
-            />
-          ))}
-        </div>
-      )}
-
-      <p className="text-[11px] text-muted-foreground">
-        {result.model ?? "no model"} · {result.provider} · {(result.latencyMs / 1000).toFixed(1)}s ·{" "}
-        {result.evidenceCount} evidence item{result.evidenceCount === 1 ? "" : "s"}
-      </p>
     </div>
   );
 }
@@ -895,23 +984,22 @@ function CitationCard({
     <div
       id={id}
       className={
-        "flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-xs transition-colors " +
-        (highlighted ? "border-primary bg-primary/10" : "bg-background")
+        "flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors " +
+        (highlighted ? "border-primary bg-primary/10" : "bg-background hover:border-primary/40")
       }
     >
-      <span className="flex items-center gap-2">
-        <span className="inline-flex size-4 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
-          {citation.index}
-        </span>
-        <span className="font-medium">{citation.label}</span>
-        <span className="text-muted-foreground">{citation.sourceType}</span>
+      <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+        {citation.index}
       </span>
+      <FileText className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="max-w-[16rem] truncate font-medium">{citation.label}</span>
+      <span className="shrink-0 text-muted-foreground">· {citation.sourceType}</span>
       {teacher && citation.deepLink && (
         <a
           href={apiPath(citation.deepLink)}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1 text-primary hover:underline"
+          className="inline-flex shrink-0 items-center gap-1 text-primary hover:underline"
           title="Opens the raw source document (teacher surface)"
         >
           <ExternalLink className="size-3" aria-hidden="true" />

@@ -473,6 +473,7 @@ export default function SyllabAiWorkbench() {
               setMessages={setTutorMessages}
               draft={tutorDraft}
               onDraftConsumed={() => setTutorDraft(null)}
+              subjectName={subjectName}
             />
           </TabsContent>
           <TabsContent value="assistant">

@@ -53,6 +53,7 @@ import {
 import {
   AlertTriangle,
   Compass,
+  Info,
   Lightbulb,
   ListChecks,
   Loader2,
@@ -262,6 +263,16 @@ export function QuestionClaOverlay({
           </SheetDescription>
         </SheetHeader>
 
+        {/* amber honesty banner — the Save My Exams reference panel
+            (web-bb263437): same family as the assistant tab */}
+        <div className="flex items-start gap-2 border-b bg-amber-50 px-4 py-2.5 text-xs leading-relaxed text-amber-800 dark:bg-amber-950/60 dark:text-amber-200">
+          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <p>
+            The assistant can make mistakes. It answers only from this question’s own text
+            plus validated material — check the citations on every answer.
+          </p>
+        </div>
+
         {/* server-anchored context card: the question IS the anchor — the
             server resolves the whole family's first row and serves the stem
             plus every part prompt as id-anchored lead evidence */}
@@ -329,13 +340,18 @@ export function QuestionClaOverlay({
               onClick={() => setFreeMode(m)}
               aria-pressed={freeMode === m}
               className={cn(
-                "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+                "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
                 freeMode === m
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border text-muted-foreground hover:border-primary/40",
               )}
             >
-              {m}
+              {m === "EXPLAIN" ? (
+                <Compass className="size-3" aria-hidden="true" />
+              ) : (
+                <Lightbulb className="size-3" aria-hidden="true" />
+              )}
+              {m === "EXPLAIN" ? "Explain" : "Hint"}
             </button>
           ))}
           <span
@@ -411,7 +427,7 @@ export function QuestionClaOverlay({
             {messages.map((m, i) =>
               m.kind === "user" ? (
                 <div key={i} className="flex justify-end">
-                  <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3.5 py-2 text-sm text-primary-foreground">
+                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-muted px-3.5 py-2 text-sm">
                     {m.text}
                   </div>
                 </div>
@@ -509,8 +525,8 @@ export function QuestionClaOverlay({
               onChange={(e) => setDraft(e.target.value)}
               placeholder={
                 freeMode === "HINT" && target?.anchor === "QUESTION_PART"
-                  ? `Ask about part (${target.label})…`
-                  : "Ask about this question…"
+                  ? `What needs explaining about part (${target.label})?`
+                  : "What needs explaining?"
               }
               maxLength={2000}
               disabled={busy}
