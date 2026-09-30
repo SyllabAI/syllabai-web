@@ -24,8 +24,17 @@ function fmtDate(iso: string | null | undefined): string {
 
 // ── 1+2. Mastery Map / My State — the personalized KG + learner state ───────
 
-/** KG types map onto KGX types (SUBJECT/UNIT/TOPIC/SUBTOPIC/MISCONCEPTION). */
-function kgxTypeFor(t: string): KGXNode["type"] {
+/**
+ * KG types map onto KGX types (SUBJECT/UNIT/TOPIC/SUBTOPIC/MISCONCEPTION),
+ * with the settled T-C11 layer distinguished: CONCEPT nodes render as
+ * concepts, and a SUBTOPIC whose code carries the `-PR-` marker is a required
+ * practical (the DB stores practicals as SUBTOPIC-typed structure nodes; the
+ * `-PR-` code convention is the store's own — same check the concept-graph
+ * list view has always used). Practical visibility matters: the 12 validated
+ * REQUIRES_PREREQUISITE edges that originate at practical nodes are only
+ * readable when the practical endpoint draws as a practical.
+ */
+function kgxTypeFor(t: string, code?: string | null): KGXNode["type"] {
   switch (t) {
     case "SUBJECT":
       return "ROOT";
@@ -34,7 +43,9 @@ function kgxTypeFor(t: string): KGXNode["type"] {
     case "TOPIC":
       return "TOPIC";
     case "SUBTOPIC":
-      return "SUBTOPIC";
+      return code && code.includes("-PR-") ? "PRACTICAL" : "SUBTOPIC";
+    case "CONCEPT":
+      return "CONCEPT";
     case "MISCONCEPTION":
       return "MISCONCEPTION";
     default:
@@ -62,7 +73,7 @@ export function learnerGraphHost(
     const miscon = misconceptions.get(n.id);
     return {
       id: n.id,
-      type: kgxTypeFor(n.type),
+      type: kgxTypeFor(n.type, n.code),
       title: n.title,
       code: n.code,
       parentId: n.type === "MISCONCEPTION" ? null : null, // set below from childIds
@@ -335,7 +346,7 @@ export function conceptGraphHost(
   const nodes: KGXNode[] = [];
   const specById = new Map<string, NodeView>();
 
-  const typeFor = (t: string): KGXNode["type"] => {
+  const typeFor = (t: string, code?: string | null): KGXNode["type"] => {
     switch (t) {
       case "SUBJECT":
         return "ROOT";
@@ -344,12 +355,17 @@ export function conceptGraphHost(
         return "UNIT";
       case "SPECIFICATION_POINT":
         return "SPEC";
-      case "CONCEPT":
-        return "CONCEPT";
       case "PRACTICAL":
         return "PRACTICAL";
+      case "CONCEPT":
+        return "CONCEPT";
       case "MISCONCEPTION":
         return "MISCONCEPTION";
+      case "SUBTOPIC":
+        // the generic knowledge tree types BOTH spec points and required
+        // practicals SUBTOPIC; only the `-PR-` code convention tells them
+        // apart (store convention, same check the list view uses)
+        return code && code.includes("-PR-") ? "PRACTICAL" : "SPEC";
       default:
         return "TOPIC";
     }
@@ -359,7 +375,7 @@ export function conceptGraphHost(
     specById.set(node.id, node);
     nodes.push({
       id: node.id,
-      type: typeFor(node.type),
+      type: typeFor(node.type, node.code),
       title: node.title,
       code: node.code,
       parentId,
@@ -445,6 +461,18 @@ export function conceptGraphHost(
 
 // ── 5. Class Intelligence — class aggregates over the topic graph ──────────
 
+/**
+ * Class overview rows cover every curriculum node — including the settled
+ * T-C11 layer (concepts) and the required practicals. The `-PR-` code marker
+ * is the store's own convention for practicals (they are SUBTOPIC-typed
+ * structure nodes); concepts carry the `-CON-` marker.
+ */
+function classNodeTypeFor(code: string): KGXNode["type"] {
+  if (code.includes("-PR-")) return "PRACTICAL";
+  if (code.includes("-CON-") || code.includes("-MIS-")) return "CONCEPT";
+  return "TOPIC";
+}
+
 export function classGraphHost(
   overview: ClassOverviewView,
   drill?: {
@@ -478,7 +506,11 @@ export function classGraphHost(
     const parentId = t.parentCode ? `unit:${t.parentCode}` : rootId;
     nodes.push({
       id: t.nodeId,
-      type: "TOPIC",
+      // the aggregate list carries the whole structure (and the T-C11 layer):
+      // `-PR-` codes are required practicals, `4CH1-CON-*` are concepts —
+      // drawing them generically hides the practical endpoints of the 12
+      // validated practical prerequisite edges
+      type: classNodeTypeFor(t.code),
       title: t.title,
       code: t.code,
       parentId,
@@ -500,28 +532,30 @@ export function classGraphHost(
     });
   }
 
-  const edges: KGXEdge[] = overview.weakPrerequisites.map((w) => ({
-    from: w.prerequisiteNodeId,
-    to: w.prerequisiteNodeId, // replaced below — dependents need edges; see loop
-    kind: "pre" as const,
-    label: "Weak prerequisite for",
-    provenance: `${w.learnersMeasured} learners measured · mean ${w.meanMastery != null ? Math.round(w.meanMastery * 100) + "%" : "—"}`,
-  }));
-  // weak-prerequisite edges: prerequisite → each dependent topic that exists
+  // weak-prerequisite edges: prerequisite → each dependent topic that exists.
+  // T-C11 projection honesty: pairs the backend derived through a concept's
+  // validated anchor (derived=true) carry the concept codes on the edge, so a
+  // teacher can tell an inferred-only structure-level pair from a settled one.
   const topicById = new Map(overview.topics.map((t) => [t.nodeId, t]));
-  edges.length = 0;
-  for (const w of overview.weakPrerequisites) {
-    for (const dep of w.dependents) {
-      if (!topicById.has(dep.nodeId) || dep.nodeId === w.prerequisiteNodeId) continue;
-      edges.push({
+  const weakEdgeProvenance = (w: ClassOverviewView["weakPrerequisites"][number]) => {
+    const base = `prereq mean ${w.meanMastery != null ? Math.round(w.meanMastery * 100) + "%" : "—"}`;
+    return w.derived && w.derivedViaConceptCodes.length > 0
+      ? `${base} · T-C11 inferred via ${w.derivedViaConceptCodes.join(", ")}`
+      : base;
+  };
+  const edges: KGXEdge[] = overview.weakPrerequisites.flatMap((w) =>
+    w.dependents
+      .filter((dep) => topicById.has(dep.nodeId) && dep.nodeId !== w.prerequisiteNodeId)
+      .map((dep) => ({
         from: w.prerequisiteNodeId,
         to: dep.nodeId,
-        kind: "pre",
+        kind: "pre" as const,
         label: "Weak prerequisite for",
-        provenance: `prereq mean ${w.meanMastery != null ? Math.round(w.meanMastery * 100) + "%" : "—"} · dependent mean ${dep.meanMastery != null ? Math.round(dep.meanMastery * 100) + "%" : "—"}`,
-      });
-    }
-  }
+        provenance:
+          `${weakEdgeProvenance(w)}` +
+          ` · dependent mean ${dep.meanMastery != null ? Math.round(dep.meanMastery * 100) + "%" : "—"}`,
+      })),
+  );
 
   return {
     graph: { nodes, edges },
