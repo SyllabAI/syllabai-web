@@ -1135,6 +1135,15 @@ export interface ClassWeakPrerequisite {
   meanMastery: number | null;
   masteryBand: string;
   dependents: { nodeId: string; code: string; title: string; meanMastery: number | null }[];
+  /**
+   * T-C11 projection honesty: the settled store expresses prerequisites at
+   * concept level; a concept prerequisite is projected onto the spec point
+   * anchor(s) that teach it. derived=true marks an inferred-only
+   * structure-level pair (no settled structure-level edge); the concept codes
+   * behind the projection are listed for the operator's T-C11 review.
+   */
+  derived: boolean;
+  derivedViaConceptCodes: string[];
 }
 
 export interface ClassRecentActivity {

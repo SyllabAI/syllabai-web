@@ -329,6 +329,20 @@ export function ClassIntelligenceView({
                     <span className="text-xs text-muted-foreground">
                       {w.learnersMeasured} measured
                     </span>
+                    {w.derived && (
+                      <span
+                        className="text-[10px] text-muted-foreground"
+                        title={
+                          w.derivedViaConceptCodes.length > 0
+                            ? `inferred-only pair — projected via the settled T-C11 concepts: ${w.derivedViaConceptCodes.join(", ")}`
+                            : undefined
+                        }
+                      >
+                        T-C11 inferred
+                        {w.derivedViaConceptCodes.length > 0 &&
+                          `: ${w.derivedViaConceptCodes.join(", ")}`}
+                      </span>
+                    )}
                     <span className="ml-auto text-xs text-muted-foreground">
                       blocks:{" "}
                       {w.dependents.map((d) => (
