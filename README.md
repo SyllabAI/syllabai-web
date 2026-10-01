@@ -1,5 +1,7 @@
 # syllabai-web
 
+> **ROLE UPDATE — ADR-029 (2026-09-28), banner added 2026-10-01 (documentation accuracy audit F-5, operator commission trace 1a0f5c00737a2801):** this repo is now the **internal teacher/ops console** — Smart Mark / marking queue home, teacher validation surfaces; **product-surface development is frozen**. The product frontend is [`SyllabAI/syllabai-hub`](https://github.com/SyllabAI/syllabai-hub) (promoted from `syllabai-demo`, live at `syllabai-hub.vercel.app`). The Learner Workbench description below is preserved verbatim and predates the promotion (its "current state" is dated 2026-09-15) — read it as history, not as the current charter.
+
 SyllabAI frontend — **Next.js 16 / React 19 / TypeScript** Learner Workbench (Vercel deployment).
 
 > Part of the SyllabAI project · master pack: [`SyllabAI/syllabai`](https://github.com/SyllabAI/syllabai) · backend: [`SyllabAI/syllabai-core`](https://github.com/SyllabAI/syllabai-core)
