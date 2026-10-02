@@ -175,5 +175,69 @@ check("bold-wrapped formula keeps the bold AND the math",
   hasKatex(bold) && !hasRedError(bold) && bold.includes("<strong"),
   bold.slice(0, 200));
 
+// ── 15–21. T-C50 backport cases — the hub T-C44 deltas + T-C47 residuals
+//    (hub gate parity: hub main fca83c8dae88 carries these 26 checks; web
+//    gets the same shapes through ITS ChatMarkdown composition) ──────────
+
+// 15. the T-C44 trigger shape: \[…\] boxed mhchem display (web's s142
+//     rule 2 lacked the line-collapse delta — a multi-line body used to
+//     nest $…$ inside the display block)
+const boxed = render(
+  "Write the balanced equation.\n\n\\[\n\\boxed{\\ce{4NH3 + 5O2 -> 4NO + 6H2O}}\n\\]",
+);
+check("15. \\[…\\] boxed mhchem display renders as math", hasKatex(boxed), boxed.slice(0, 220));
+check("15a. boxed display: no raw leaks, no red",
+  rawLeak(boxed, "\\boxed", "\\ce", "\\[").length === 0 && !hasRedError(boxed),
+  "leaked: " + rawLeak(boxed, "\\boxed", "\\ce", "\\[").join(" "));
+
+// 16. R1: a PROPER multi-line $$…$$ block — rule 6 used to shred its inner
+//     lines into nested $…$ (KaTeX "Can't use function '$'")
+const multilineDisplay = render(
+  "$$\nE = mc^2 + \\frac{1}{2}mv^2\n\\text{kinetic energy}\n$$",
+);
+check("16. R1 multi-line $$ block renders without nested-$ red error",
+  hasKatex(multilineDisplay) && !hasRedError(multilineDisplay),
+  multilineDisplay.slice(0, 220));
+check("16a. R1 multi-line $$: no raw \\frac/\\text leak",
+  rawLeak(multilineDisplay, "\\frac", "\\text").length === 0,
+  "leaked: " + rawLeak(multilineDisplay, "\\frac", "\\text").join(" "));
+
+// 17. R1 control: paired $$ span + prose on one line still both render
+const paired = render("$$x^2$$ grows as $\\frac{a}{b}$ does");
+check("17. R1 control: paired $$ span + prose run still both render",
+  (paired.match(/class="katex"/g) ?? []).length >= 2 && !hasRedError(paired),
+  paired.slice(0, 220));
+
+// 18. R2: bare \ce with nested braces — the ion shapes; the old [^}]* body
+//     cut at the first brace and wrapped an unbalanced body (red) + stray }
+const ion = render("iron is \\ce{Fe^{3+}} oxidised to \\ce{Fe^{2+}} reduced");
+check("18. R2 nested-brace \\ce{Fe^{3+}} renders as math",
+  hasKatex(ion) && !hasRedError(ion), ion.slice(0, 220));
+check("18a. R2 nested-brace \\ce: no stray brace or raw command leaks",
+  rawLeak(ion, "\\ce", "}").length === 0,
+  "leaked: " + rawLeak(ion, "\\ce", "}").join(" "));
+
+// 19. R2 variant in a table cell
+const tableIon = render("| ion | test |\n|---|---|\n| \\ce{SO4^{2-}} | white ppt |");
+check("19. R2 nested-brace \\ce{SO4^{2-}} in a table cell renders",
+  hasKatex(tableIon) && !hasRedError(tableIon),
+  visibleText(tableIon).slice(0, 160));
+
+// 20. R3: a multi-line \(…\) body — used to fragment into per-line spans
+//     with raw \frac leaking into the prose
+const multilineInline = render("consider\n\\( x = \\frac{a}{b} +\n\\sqrt{c} \\)");
+check("20. R3 multi-line \\(…\\) body stays ONE math span (no fragments)",
+  hasKatex(multilineInline) && !hasRedError(multilineInline) &&
+    rawLeak(multilineInline, "\\frac", "\\sqrt").length === 0,
+  visibleText(multilineInline).slice(0, 200));
+
+// 21. R4: bold-wrapped partial run — the opening ** used to be swallowed
+//     into the math as literal asterisks
+const boldRun = render("**\\frac{V}{24} = 0.5 mol** per litre");
+check("21. R4 bold-wrapped partial run keeps emphasis outside math",
+  hasKatex(boldRun) && !hasRedError(boldRun) && /<strong[ >]/.test(boldRun) &&
+    !/katex[^>]*>[^<]*\*\*/.test(boldRun),
+  boldRun.slice(0, 240));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

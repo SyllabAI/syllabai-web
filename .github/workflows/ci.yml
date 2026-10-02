@@ -29,3 +29,7 @@ jobs:
 
       - name: Production build (type-checked, standalone copy steps exercised)
         run: bun run build
+
+      - name: CLA math normalize verify (T-C50 — hub-parity gate: s142 shapes
+          + T-C44 deltas + T-C47 residuals through the shipped ChatMarkdown)
+        run: bun scripts/s142_cla_math_normalize_verify.ts
