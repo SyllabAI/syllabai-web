@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { formatDue, formatRelative, humanizeCode } from "@/lib/format";
 import { NextBestActionsCard } from "@/components/syllabai/NextBestActionsCard";
+import { AgendaPanel } from "@/components/syllabai/AgendaPanel";
 import type {
   LearnerKnowledgeGraphView,
   LearnerNodeWithStateView,
@@ -242,6 +243,10 @@ export function DashboardView({
             </Button>
           </CardContent>
         </Card>
+
+        {/* Set work — T-C76 agenda composition (the assignments block;
+            the reviews and actions blocks have their own cards) */}
+        <AgendaPanel />
 
         {/* Due reviews — the forgetting-decay schedule */}
         <Card>
