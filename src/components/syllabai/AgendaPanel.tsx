@@ -32,8 +32,6 @@ export function AgendaPanel() {
 
   useEffect(() => {
     let alive = true;
-    setAgenda(null);
-    setError(null);
     api
       .agenda()
       .then((a) => {
