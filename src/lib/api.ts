@@ -30,7 +30,6 @@
  */
 import { cachedGet, invalidateContentCache, singleFlight } from "./api-cache";
 import type {
-  AgendaView,
   AttemptHistoryView,
   ClaAnswerView,
   ClaMode,
@@ -488,17 +487,6 @@ export const api = {
   recommendations: (rootId: string) =>
     request<NextBestActionsView>(
       `/api/v1/learners/me/recommendations?rootId=${encodeURIComponent(rootId)}`,
-    ),
-
-  // T-C76: the agenda read model (Spec §22 route) — the server-composed
-  // "what is on my plate" view. Called without a rootId here, actions stay
-  // null (the recommendations card owns that display); the assignments
-  // block rides the AgendaPanel, reviews already have the Due reviews card.
-  agenda: (rootId?: string) =>
-    request<AgendaView>(
-      rootId
-        ? `/api/v1/learners/me/agenda?rootId=${encodeURIComponent(rootId)}`
-        : `/api/v1/learners/me/agenda`,
     ),
 
   // Smart Lesson MVP (§2): one explainable next action for a topic. Re-query

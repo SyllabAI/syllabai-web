@@ -679,58 +679,6 @@ export interface NextBestActionsView {
   actions: NextBestActionView[];
 }
 
-/** ── Learner agenda (T-C76, Spec §22 GET /api/v1/learners/me/agenda) ──
- *  The server-composed "what is on my plate" read model: due spaced reviews,
- *  visible assignments with the learner's own hand-in trail, and the NBA
- *  block when a subject rootId is supplied (null when omitted). Zero
- *  derivation beyond ordering server-side; the client derives presentation
- *  flags (overdue/done) from the same facts. */
-
-/** One pending spaced-review row (LearnerStateView.ReviewView shape). */
-export interface AgendaReviewRow {
-  nodeId: string;
-  dueAt: string;
-  reason: string;
-  /** resolved node title — the server never sends raw UUIDs to render */
-  nodeName: string | null;
-}
-
-/** The assignment row (V51 visibility: class work only for members). */
-export interface AgendaAssignment {
-  id: string;
-  title: string;
-  courseSlug: string;
-  courseLabel: string;
-  specRefs: string[];
-  marksTotal: number;
-  questionCount: number;
-  dueAt: string | null;
-  /** wire status: "open" | "closed" */
-  status: string;
-  classId: string | null;
-  createdAt: string;
-}
-
-/** The learner's latest append-only hand-in (null until they submit). */
-export interface AgendaHandIn {
-  questionsCompleted: number;
-  score: number | null;
-  submittedAt: string;
-}
-
-export interface AgendaAssignmentRow {
-  assignment: AgendaAssignment;
-  mySubmission: AgendaHandIn | null;
-}
-
-export interface AgendaView {
-  learnerId: string;
-  asOf: string;
-  dueReviews: AgendaReviewRow[];
-  assignments: AgendaAssignmentRow[];
-  actions: NextBestActionsView | null;
-}
-
 /** ── Teacher concept graph (V15): the seeded 4CH1 curriculum + settled T-C11 layer ── */
 
 /** Result of POST /api/v1/teacher/concept-graph/activate — deterministic, idempotent. */
